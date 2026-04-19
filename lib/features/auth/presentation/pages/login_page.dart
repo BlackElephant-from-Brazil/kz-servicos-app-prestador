@@ -1,0 +1,117 @@
+import 'package:flutter/material.dart';
+import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
+import 'package:kz_servicos_prestador/features/auth/presentation/pages/auth_bottom_sheet.dart';
+import 'package:kz_servicos_prestador/features/profile/data/models/mock_provider.dart';
+
+enum AuthMode { login, register, forgotPassword }
+
+class LoginPage extends StatelessWidget {
+  final ValueChanged<ProviderType> onLoginSuccess;
+
+  const LoginPage({super.key, required this.onLoginSuccess});
+
+  void _showLoginSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AuthBottomSheet(
+        initialMode: AuthMode.login,
+        onLoginSuccess: onLoginSuccess,
+      ),
+    );
+  }
+
+  void _showRegisterSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AuthBottomSheet(
+        initialMode: AuthMode.register,
+        onLoginSuccess: onLoginSuccess,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/images/login_background_img.png',
+            fit: BoxFit.cover,
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.95),
+                  Colors.black.withValues(alpha: 0.65),
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.4, 0.7],
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: MediaQuery.of(context).padding.bottom + 36,
+            child: FractionallySizedBox(
+              widthFactor: 0.8,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: () => _showLoginSheet(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.highlight,
+                        foregroundColor: Colors.black87,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        textStyle: const TextStyle(
+                          fontFamily: 'OutfitBlack',
+                          fontSize: 16,
+                        ),
+                      ),
+                      child: const Text('Login'),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: OutlinedButton(
+                      onPressed: () => _showRegisterSheet(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        textStyle: const TextStyle(
+                          fontFamily: 'OutfitBlack',
+                          fontSize: 16,
+                        ),
+                      ),
+                      child: const Text('Cadastre-se'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
