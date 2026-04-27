@@ -3,11 +3,11 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
 import 'package:kz_servicos_prestador/core/constants/map_styles.dart';
-import 'package:kz_servicos_prestador/features/trip/data/models/mock_trip_history.dart';
+import 'package:kz_servicos_prestador/core/models/trip_data.dart';
 import 'package:kz_servicos_prestador/features/trip/data/services/directions_service.dart';
 
 class TripHistoryDetailPage extends StatefulWidget {
-  final MockTripHistory trip;
+  final TripData trip;
 
   const TripHistoryDetailPage({super.key, required this.trip});
 
@@ -56,6 +56,7 @@ class _TripHistoryDetailPageState extends State<TripHistoryDetailPage> {
     final t = widget.trip;
     final origin = LatLng(t.originLat, t.originLng);
     final destination = LatLng(t.destinationLat, t.destinationLng);
+    final completedAt = t.finishedAt ?? t.scheduledAt;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -80,7 +81,6 @@ class _TripHistoryDetailPageState extends State<TripHistoryDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Map preview
             ClipRRect(
               borderRadius: BorderRadius.circular(16),
               child: SizedBox(
@@ -99,15 +99,13 @@ class _TripHistoryDetailPageState extends State<TripHistoryDetailPage> {
                       markerId: const MarkerId('pickup'),
                       position: origin,
                       icon: BitmapDescriptor.defaultMarkerWithHue(
-                        BitmapDescriptor.hueOrange,
-                      ),
+                          BitmapDescriptor.hueOrange),
                     ),
                     Marker(
                       markerId: const MarkerId('destination'),
                       position: destination,
                       icon: BitmapDescriptor.defaultMarkerWithHue(
-                        BitmapDescriptor.hueOrange,
-                      ),
+                          BitmapDescriptor.hueOrange),
                     ),
                   },
                   polylines: _polylines,
@@ -129,7 +127,7 @@ class _TripHistoryDetailPageState extends State<TripHistoryDetailPage> {
             ),
             const SizedBox(height: 20),
 
-            // Price card
+            // Card de valor
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
@@ -143,10 +141,8 @@ class _TripHistoryDetailPageState extends State<TripHistoryDetailPage> {
               ),
               child: Column(
                 children: [
-                  const Text(
-                    'Valor da corrida',
-                    style: TextStyle(fontSize: 13, color: Colors.white70),
-                  ),
+                  const Text('Valor da corrida',
+                      style: TextStyle(fontSize: 13, color: Colors.white70)),
                   const SizedBox(height: 4),
                   Text(
                     'R\$ ${t.price.toStringAsFixed(2)}',
@@ -156,129 +152,121 @@ class _TripHistoryDetailPageState extends State<TripHistoryDetailPage> {
                       color: Colors.white,
                     ),
                   ),
+                  if (t.rating != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.star, color: Colors.white70, size: 16),
+                        const SizedBox(width: 4),
+                        Text(
+                          t.rating!.toStringAsFixed(1),
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
             const SizedBox(height: 16),
 
-            // Client
-            _SectionCard(
-              children: [
-                _DetailRow(
-                  icon: Icons.person,
-                  label: 'Cliente',
-                  value: t.clientName,
-                ),
-                _DetailRow(
-                  icon: Icons.people,
-                  label: 'Passageiros',
-                  value: '${t.passengers}',
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Route
-            _SectionCard(
-              children: [
-                _DetailRow(
-                  icon: Icons.trip_origin,
-                  label: 'Embarque',
-                  value: t.origin,
-                  iconColor: AppColors.highlight,
-                ),
-                _DetailRow(
-                  icon: Icons.flag_rounded,
-                  label: 'Destino',
-                  value: t.destination,
-                  iconColor: AppColors.highlight,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Trip stats
-            _SectionCard(
-              children: [
-                _DetailRow(
-                  icon: Icons.straighten,
-                  label: 'Distância',
-                  value: '${t.distanceKm.toStringAsFixed(1)} km',
-                ),
-                _DetailRow(
-                  icon: Icons.timer_outlined,
-                  label: 'Duração',
-                  value: '${t.durationMinutes} min',
-                ),
-                _DetailRow(
-                  icon: Icons.calendar_today,
-                  label: 'Data',
-                  value:
-                      '${t.completedAt.day.toString().padLeft(2, '0')}/${t.completedAt.month.toString().padLeft(2, '0')}/${t.completedAt.year}',
-                ),
-                _DetailRow(
-                  icon: Icons.access_time,
-                  label: 'Horário',
-                  value:
-                      '${t.completedAt.hour.toString().padLeft(2, '0')}:${t.completedAt.minute.toString().padLeft(2, '0')}',
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Payment
-            _SectionCard(
-              children: [
-                _DetailRow(
-                  icon: _paymentIcon(t.paymentMethod),
-                  label: 'Pagamento',
-                  value: t.paymentMethod,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Children
-            if (t.hasChildren)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _SectionCard(
-                  children: [
-                    _DetailRow(
-                      icon: Icons.child_care,
-                      label: 'Crianças',
-                      value: t.childrenDescription ?? 'Sim',
-                    ),
-                  ],
-                ),
+            _SectionCard(children: [
+              _DetailRow(
+                icon: Icons.person,
+                label: 'Cliente',
+                value: t.clientName,
               ),
+              _DetailRow(
+                icon: Icons.people,
+                label: 'Passageiros',
+                value: '${t.passengerCount}',
+              ),
+            ]),
+            const SizedBox(height: 12),
 
-            // Luggage
-            if (t.hasLuggage)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _SectionCard(
-                  children: [
-                    _DetailRow(
-                      icon: Icons.luggage,
-                      label: 'Bagagem',
-                      value: t.luggageDescription ?? 'Sim',
-                    ),
-                  ],
+            _SectionCard(children: [
+              _DetailRow(
+                icon: Icons.trip_origin,
+                label: 'Embarque',
+                value: t.origin,
+                iconColor: AppColors.highlight,
+              ),
+              _DetailRow(
+                icon: Icons.flag_rounded,
+                label: 'Destino',
+                value: t.destination,
+                iconColor: AppColors.highlight,
+              ),
+            ]),
+            const SizedBox(height: 12),
+
+            _SectionCard(children: [
+              _DetailRow(
+                icon: Icons.calendar_today,
+                label: 'Data',
+                value:
+                    '${completedAt.day.toString().padLeft(2, '0')}/${completedAt.month.toString().padLeft(2, '0')}/${completedAt.year}',
+              ),
+              _DetailRow(
+                icon: Icons.access_time,
+                label: 'Horário',
+                value:
+                    '${completedAt.hour.toString().padLeft(2, '0')}:${completedAt.minute.toString().padLeft(2, '0')}',
+              ),
+            ]),
+            const SizedBox(height: 12),
+
+            _SectionCard(children: [
+              _DetailRow(
+                icon: _paymentIcon(t.paymentMethod ?? ''),
+                label: 'Pagamento',
+                value: t.paymentMethodLabel,
+              ),
+            ]),
+
+            if (t.hasChildren) ...[
+              const SizedBox(height: 12),
+              _SectionCard(children: [
+                _DetailRow(
+                  icon: Icons.child_care,
+                  label: 'Crianças',
+                  value: t.children.isNotEmpty
+                      ? t.children
+                          .map((c) =>
+                              '${c.age} anos${c.needsCarSeat ? ' (cadeirinha)' : ''}')
+                          .join(', ')
+                      : '${t.childrenCount}',
                 ),
-              ),
+              ]),
+            ],
 
-            // Observations
-            if (t.observations != null && t.observations!.isNotEmpty)
-              _SectionCard(
-                children: [
-                  _DetailRow(
-                    icon: Icons.notes,
-                    label: 'Observações',
-                    value: t.observations!,
-                  ),
-                ],
-              ),
+            if (t.hasLuggage) ...[
+              const SizedBox(height: 12),
+              _SectionCard(children: [
+                _DetailRow(
+                  icon: Icons.luggage,
+                  label: 'Bagagem',
+                  value: t.luggage.isNotEmpty
+                      ? t.luggage
+                          .map((l) => '${l.quantity}x ${l.size}')
+                          .join(', ')
+                      : '${t.luggageCount} volume(s)',
+                ),
+              ]),
+            ],
+
+            if (t.observations != null && t.observations!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _SectionCard(children: [
+                _DetailRow(
+                  icon: Icons.notes,
+                  label: 'Observações',
+                  value: t.observations!,
+                ),
+              ]),
+            ],
           ],
         ),
       ),
@@ -286,35 +274,24 @@ class _TripHistoryDetailPageState extends State<TripHistoryDetailPage> {
   }
 
   IconData _paymentIcon(String method) => switch (method) {
-        'PIX' => Icons.pix_rounded,
-        'TED' => Icons.account_balance,
-        'Faturamento' => Icons.receipt_long,
-        _ => Icons.credit_card,
+        'pix' => Icons.pix_rounded,
+        'debit' => Icons.credit_card,
+        'credit' => Icons.credit_card,
+        'cash' => Icons.money,
+        _ => Icons.payment,
       };
 
-  void _fitMap(
-    GoogleMapController controller,
-    LatLng origin,
-    LatLng destination,
-  ) {
-    controller.animateCamera(
+  void _fitMap(GoogleMapController c, LatLng o, LatLng d) {
+    c.animateCamera(
       CameraUpdate.newLatLngBounds(
         LatLngBounds(
           southwest: LatLng(
-            origin.latitude < destination.latitude
-                ? origin.latitude
-                : destination.latitude,
-            origin.longitude < destination.longitude
-                ? origin.longitude
-                : destination.longitude,
+            o.latitude < d.latitude ? o.latitude : d.latitude,
+            o.longitude < d.longitude ? o.longitude : d.longitude,
           ),
           northeast: LatLng(
-            origin.latitude > destination.latitude
-                ? origin.latitude
-                : destination.latitude,
-            origin.longitude > destination.longitude
-                ? origin.longitude
-                : destination.longitude,
+            o.latitude > d.latitude ? o.latitude : d.latitude,
+            o.longitude > d.longitude ? o.longitude : d.longitude,
           ),
         ),
         40,
@@ -325,7 +302,6 @@ class _TripHistoryDetailPageState extends State<TripHistoryDetailPage> {
 
 class _SectionCard extends StatelessWidget {
   final List<Widget> children;
-
   const _SectionCard({required this.children});
 
   @override
@@ -334,9 +310,7 @@ class _SectionCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-      ),
+          color: Colors.white, borderRadius: BorderRadius.circular(14)),
       child: Column(children: children),
     );
   }
@@ -366,10 +340,7 @@ class _DetailRow extends StatelessWidget {
           const SizedBox(width: 10),
           Text(
             '$label: ',
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-            ),
+            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
           ),
           Expanded(
             child: Text(

@@ -2,12 +2,27 @@
 
 All tables have RLS enabled. Policies use `auth.uid()` and `public.get_user_role()`.
 
-## Helper Function
+## Helper Functions
 
 ```sql
+-- Returns the role of the authenticated user.
 CREATE OR REPLACE FUNCTION public.get_user_role()
 RETURNS user_role AS $$
   SELECT role FROM public.users WHERE id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Checks if auth.uid() is listed as a candidate for a given trip.
+-- SECURITY DEFINER: bypasses RLS — used to break recursion in trips_select.
+CREATE OR REPLACE FUNCTION public.is_trip_candidate_for_current_user(p_trip_id uuid)
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.trip_driver_candidates tdc
+    JOIN public.driver_profiles dp ON dp.id = tdc.driver_profile_id
+    JOIN public.provider_profiles pp ON pp.id = dp.provider_profile_id
+    WHERE tdc.trip_id = p_trip_id
+      AND pp.user_id = auth.uid()
+  );
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 ```
 
@@ -67,7 +82,7 @@ $$ LANGUAGE sql SECURITY DEFINER STABLE;
 ### trips
 | Policy | Operation | Who |
 |--------|-----------|-----|
-| `trips_select` | SELECT | client_id, driver (via driver_profile), or admin |
+| `trips_select` | SELECT | client_id, assigned driver, candidate driver (via `is_trip_candidate_for_current_user`), or admin |
 | `trips_insert` | INSERT | Client only (`client_id = auth.uid()` AND `role = 'client'`) |
 | `trips_update` | UPDATE | Participants or admin |
 
@@ -79,6 +94,14 @@ Policies follow the parent `trips` table — access based on trip ownership.
 |--------|-----------|-----|
 | `trip_status_history_select` | SELECT | Trip participants or admin |
 | `trip_status_history_insert` | INSERT | All authenticated (trigger-driven) |
+
+### trip_driver_candidates
+| Policy | Operation | Who |
+|--------|-----------|-----|
+| `trip_driver_candidates_select` | SELECT | Trip client, assigned driver, candidate driver themselves, or admin |
+| `trip_driver_candidates_insert` | INSERT | Admin only |
+| `trip_driver_candidates_update` | UPDATE | Own driver or admin |
+| `trip_driver_candidates_delete` | DELETE | Admin only |
 
 ### service_requests
 | Policy | Operation | Who |

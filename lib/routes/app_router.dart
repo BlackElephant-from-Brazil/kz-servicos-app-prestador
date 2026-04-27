@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:kz_servicos_prestador/core/models/trip_data.dart';
+import 'package:kz_servicos_prestador/core/services/auth_state.dart';
 import 'package:kz_servicos_prestador/features/auth/presentation/pages/login_page.dart';
 import 'package:kz_servicos_prestador/features/chat/presentation/pages/chat_page.dart';
 import 'package:kz_servicos_prestador/features/chat/presentation/pages/messages_page.dart';
@@ -12,24 +14,20 @@ import 'package:kz_servicos_prestador/features/profile/data/models/mock_provider
 import 'package:kz_servicos_prestador/features/profile/presentation/pages/profile_page.dart';
 import 'package:kz_servicos_prestador/features/profile/presentation/pages/security_settings_page.dart';
 import 'package:kz_servicos_prestador/features/splash/presentation/pages/splash_page.dart';
-import 'package:kz_servicos_prestador/features/trip/data/models/mock_trip_history.dart';
 import 'package:kz_servicos_prestador/features/trip/data/models/mock_trip_request.dart';
 import 'package:kz_servicos_prestador/features/trip/presentation/pages/active_trip_page.dart';
-import 'package:kz_servicos_prestador/features/trip/presentation/pages/trip_details_page.dart';
 import 'package:kz_servicos_prestador/features/trip/presentation/pages/trip_history_detail_page.dart';
 import 'package:kz_servicos_prestador/features/trip/presentation/pages/trip_history_page.dart';
 import 'package:kz_servicos_prestador/features/schedules/presentation/pages/schedules_page.dart';
 import 'package:kz_servicos_prestador/features/schedules/presentation/pages/schedule_detail_page.dart';
-import 'package:kz_servicos_prestador/features/schedules/data/models/mock_schedule.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
-  // ignore: unused_field
-  static ProviderType _loggedInType = ProviderType.driver;
 
   static final GoRouter router = GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/splash',
+    redirect: _authGuard,
     routes: [
       GoRoute(
         path: '/splash',
@@ -41,7 +39,6 @@ class AppRouter {
         path: '/login',
         builder: (context, state) => LoginPage(
           onLoginSuccess: (type) {
-            _loggedInType = type;
             if (type == ProviderType.serviceProvider) {
               context.go('/provider-home');
             } else {
@@ -82,16 +79,9 @@ class AppRouter {
         },
       ),
       GoRoute(
-        path: '/trip-details',
-        builder: (context, state) {
-          final request = state.extra as MockTripRequest;
-          return TripDetailsPage(request: request);
-        },
-      ),
-      GoRoute(
         path: '/trip-history-detail',
         builder: (context, state) {
-          final trip = state.extra as MockTripHistory;
+          final trip = state.extra as TripData;
           return TripHistoryDetailPage(trip: trip);
         },
       ),
@@ -119,8 +109,9 @@ class AppRouter {
       GoRoute(
         path: '/schedule-detail',
         builder: (context, state) {
-          final schedule = state.extra as MockSchedule;
-          return ScheduleDetailPage(schedule: schedule);
+          final trip = state.extra as TripData;
+          final fromHome = state.uri.queryParameters['fromHome'] == 'true';
+          return ScheduleDetailPage(trip: trip, fromHome: fromHome);
         },
       ),
       // Service provider routes
@@ -145,17 +136,26 @@ class AppRouter {
     ],
   );
 
+  static String? _authGuard(BuildContext context, GoRouterState state) {
+    final path = state.uri.path;
+    final publicRoutes = ['/splash', '/login'];
+    if (publicRoutes.contains(path)) return null;
+    if (!AuthState.isAuthenticated) return '/login';
+    return null;
+  }
+
   static void _handleNavTap(BuildContext context, int index) {
     final routes = ['/home', '/schedules', '/earnings', '/profile'];
     context.go(routes[index]);
   }
 
   static void _handleProviderNavTap(BuildContext context, int index) {
-    const routes = [
-      '/provider-home',
-      '/provider-earnings',
-      '/provider-profile',
-    ];
+    const routes = ['/provider-home', '/provider-earnings', '/provider-profile'];
     context.go(routes[index]);
+  }
+
+  static void logout(BuildContext context) {
+    AuthState.logout();
+    context.go('/login');
   }
 }

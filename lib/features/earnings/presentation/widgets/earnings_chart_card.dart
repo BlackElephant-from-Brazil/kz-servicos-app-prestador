@@ -1,10 +1,10 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
-import 'package:kz_servicos_prestador/features/earnings/data/models/mock_earnings.dart';
+import 'package:kz_servicos_prestador/core/services/trip_service.dart';
 
 class EarningsChartCard extends StatefulWidget {
-  final List<MockMonthlyEarning> monthlyHistory;
+  final List<MonthlyEarning> monthlyHistory;
   final double monthOverMonthDiff;
 
   const EarningsChartCard({
@@ -48,7 +48,7 @@ class _EarningsChartCardState extends State<EarningsChartCard>
     super.dispose();
   }
 
-  List<MockMonthlyEarning> get _visibleMonths {
+  List<MonthlyEarning> get _visibleMonths {
     if (_showAnnual) return widget.monthlyHistory;
     // Show last 6 months
     final data = widget.monthlyHistory;

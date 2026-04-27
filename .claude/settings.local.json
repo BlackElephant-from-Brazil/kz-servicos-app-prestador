@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter analyze *)",
+      "Bash(grep -B 2 -A 30 \"^## trips$\" \"c:/Users/guilh/OneDrive/Documents/BlackElephant/Clientes/KZ/kz-servicos-app-prestador/.github/skills/kz-database/references/schema.md\")",
+      "Bash(grep -B 2 -A 20 \"^## driver_profiles$\" \"c:/Users/guilh/OneDrive/Documents/BlackElephant/Clientes/KZ/kz-servicos-app-prestador/.github/skills/kz-database/references/schema.md\")"
+    ]
+  }
+}

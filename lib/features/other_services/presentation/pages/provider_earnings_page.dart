@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
 import 'package:kz_servicos_prestador/core/widgets/service_provider_bottom_nav.dart';
+import 'package:kz_servicos_prestador/core/services/trip_service.dart' show MonthlyEarning;
 import 'package:kz_servicos_prestador/features/earnings/data/models/mock_earnings.dart';
 import 'package:kz_servicos_prestador/features/earnings/presentation/widgets/earnings_chart_card.dart';
 import 'package:kz_servicos_prestador/features/profile/data/models/mock_provider.dart';
@@ -63,7 +64,14 @@ class _ProviderEarningsPageState extends State<ProviderEarningsPage> {
                   ),
                   const SizedBox(height: 16),
                   EarningsChartCard(
-                    monthlyHistory: earnings.monthlyHistory,
+                    monthlyHistory: earnings.monthlyHistory
+                        .map((m) => MonthlyEarning(
+                              month: m.month,
+                              year: m.year,
+                              total: m.total,
+                              trips: m.trips,
+                            ))
+                        .toList(),
                     monthOverMonthDiff: earnings.currentMonthTotal -
                         earnings.previousMonthTotal,
                   ),

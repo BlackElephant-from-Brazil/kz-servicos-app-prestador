@@ -22,17 +22,7 @@ class LoginPage extends StatelessWidget {
     );
   }
 
-  void _showRegisterSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => AuthBottomSheet(
-        initialMode: AuthMode.register,
-        onLoginSuccess: onLoginSuccess,
-      ),
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -86,26 +76,7 @@ class LoginPage extends StatelessWidget {
                       child: const Text('Login'),
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: OutlinedButton(
-                      onPressed: () => _showRegisterSheet(context),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        textStyle: const TextStyle(
-                          fontFamily: 'OutfitBlack',
-                          fontSize: 16,
-                        ),
-                      ),
-                      child: const Text('Cadastre-se'),
-                    ),
-                  ),
+
                 ],
               ),
             ),

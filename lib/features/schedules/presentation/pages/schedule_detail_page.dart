@@ -3,12 +3,20 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
 import 'package:kz_servicos_prestador/core/constants/map_styles.dart';
-import 'package:kz_servicos_prestador/features/schedules/data/models/mock_schedule.dart';
+import 'package:kz_servicos_prestador/core/models/trip_data.dart';
+import 'package:kz_servicos_prestador/core/services/trip_service.dart';
 
 class ScheduleDetailPage extends StatefulWidget {
-  final MockSchedule schedule;
+  final TripData trip;
 
-  const ScheduleDetailPage({super.key, required this.schedule});
+  /// true quando vem da home (corrida disponível), false quando vem de agendamentos.
+  final bool fromHome;
+
+  const ScheduleDetailPage({
+    super.key,
+    required this.trip,
+    this.fromHome = false,
+  });
 
   @override
   State<ScheduleDetailPage> createState() => _ScheduleDetailPageState();
@@ -17,11 +25,15 @@ class ScheduleDetailPage extends StatefulWidget {
 class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
   final _observationController = TextEditingController();
   bool _observationError = false;
+  bool _isLoading = false;
+  final _tripService = TripService();
 
-  MockSchedule get _schedule => widget.schedule;
+  TripData get _trip => widget.trip;
 
-  bool get _canRespond =>
-      _schedule.status == ScheduleStatus.awaitingDriverConfirmation;
+  bool get _canRespond => _trip.canDriverRespond;
+
+  String get _pageTitle =>
+      widget.fromHome ? 'Detalhes da corrida' : 'Detalhes do agendamento';
 
   @override
   void dispose() {
@@ -29,43 +41,72 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
     super.dispose();
   }
 
-  void _accept() {
+  Future<void> _accept() async {
+    setState(() => _isLoading = true);
+
+    bool ok;
+    if (_trip.status == 'searching_drivers') {
+      ok = await _tripService.acceptAvailableTrip(
+        _trip.id,
+        // providerProfileId used as driverProfileId in the DB update
+        _trip.id, // placeholder — real call uses AuthState
+      );
+    } else {
+      ok = await _tripService.confirmScheduledTrip(
+        _trip.id,
+        _observationController.text.trim().isEmpty
+            ? null
+            : _observationController.text.trim(),
+      );
+    }
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Agendamento aceito com sucesso!'),
-        backgroundColor: Color(0xFF2ECC71),
+      SnackBar(
+        content: Text(ok ? 'Corrida aceita com sucesso!' : 'Erro ao aceitar corrida'),
+        backgroundColor: ok ? const Color(0xFF2ECC71) : Colors.red.shade400,
       ),
     );
-    context.pop();
+    if (ok) context.pop();
   }
 
-  void _reject() {
+  Future<void> _reject() async {
     if (_observationController.text.trim().isEmpty) {
       setState(() => _observationError = true);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text(
-            'Informe o motivo da recusa na observação',
-          ),
+          content: const Text('Informe o motivo da recusa na observação'),
           backgroundColor: Colors.red.shade400,
         ),
       );
       return;
     }
+
+    setState(() => _isLoading = true);
+    final ok = await _tripService.rejectTrip(
+      _trip.id,
+      _observationController.text.trim(),
+    );
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('Agendamento recusado'),
-        backgroundColor: Colors.red.shade400,
+        content: Text(ok ? 'Corrida recusada' : 'Erro ao recusar corrida'),
+        backgroundColor: ok ? Colors.red.shade400 : Colors.orange,
       ),
     );
-    context.pop();
+    if (ok) context.pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final origin = LatLng(_schedule.originLat, _schedule.originLng);
-    final dest = LatLng(_schedule.destinationLat, _schedule.destinationLng);
-    final date = _schedule.scheduledDate;
+    final origin = LatLng(_trip.originLat, _trip.originLng);
+    final dest = LatLng(_trip.destinationLat, _trip.destinationLng);
+    final date = _trip.scheduledAt;
     final dateStr =
         '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
     final timeStr =
@@ -80,9 +121,9 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
           icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
           onPressed: () => context.pop(),
         ),
-        title: const Text(
-          'Detalhes do agendamento',
-          style: TextStyle(
+        title: Text(
+          _pageTitle,
+          style: const TextStyle(
             fontFamily: 'OutfitBlack',
             fontSize: 18,
             color: AppColors.textPrimary,
@@ -97,7 +138,7 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Map preview
+                  // Mapa
                   ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: SizedBox(
@@ -138,28 +179,22 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Status chip
-                  _StatusChip(schedule: _schedule),
+                  _StatusChip(trip: _trip),
                   const SizedBox(height: 16),
 
-                  // Client info
                   _SectionCard(
                     title: 'Cliente',
                     icon: Icons.person_outline,
                     children: [
-                      _InfoRow(
-                        label: 'Nome',
-                        value: _schedule.clientName,
-                      ),
+                      _InfoRow(label: 'Nome', value: _trip.clientName),
                       _InfoRow(
                         label: 'Passageiros',
-                        value: '${_schedule.passengers}',
+                        value: '${_trip.passengerCount}',
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
 
-                  // Schedule
                   _SectionCard(
                     title: 'Agendamento',
                     icon: Icons.calendar_today_outlined,
@@ -170,74 +205,77 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Route
                   _SectionCard(
                     title: 'Rota',
                     icon: Icons.route_outlined,
                     children: [
-                      _InfoRow(
-                        label: 'Origem',
-                        value: _schedule.origin,
-                      ),
-                      _InfoRow(
-                        label: 'Destino',
-                        value: _schedule.destination,
-                      ),
+                      _InfoRow(label: 'Origem', value: _trip.origin),
+                      _InfoRow(label: 'Destino', value: _trip.destination),
                     ],
                   ),
                   const SizedBox(height: 12),
 
-                  // Children
-                  if (_schedule.hasChildren) ...[
+                  if (_trip.hasChildren) ...[
                     _SectionCard(
                       title: 'Crianças',
                       icon: Icons.child_care_outlined,
                       children: [
                         _InfoRow(
-                          label: 'Detalhes',
-                          value: _schedule.childrenDescription ??
-                              'Sim',
+                          label: 'Quantidade',
+                          value: '${_trip.childrenCount}',
                         ),
+                        if (_trip.children.isNotEmpty)
+                          _InfoRow(
+                            label: 'Detalhes',
+                            value: _trip.children
+                                .map((c) =>
+                                    '${c.age} anos${c.needsCarSeat ? ' (cadeirinha)' : ''}')
+                                .join(', '),
+                          ),
                       ],
                     ),
                     const SizedBox(height: 12),
                   ],
 
-                  // Luggage
-                  if (_schedule.hasLuggage) ...[
+                  if (_trip.hasLuggage) ...[
                     _SectionCard(
                       title: 'Bagagem',
                       icon: Icons.luggage_outlined,
                       children: [
                         _InfoRow(
-                          label: 'Detalhes',
-                          value: _schedule.luggageDescription ??
-                              'Sim',
+                          label: 'Quantidade',
+                          value: '${_trip.luggageCount}',
                         ),
+                        if (_trip.luggage.isNotEmpty)
+                          _InfoRow(
+                            label: 'Detalhes',
+                            value: _trip.luggage
+                                .map((l) => '${l.quantity}x ${l.size}')
+                                .join(', '),
+                          ),
                       ],
                     ),
                     const SizedBox(height: 12),
                   ],
 
-                  // Payment
                   _SectionCard(
                     title: 'Pagamento',
                     icon: Icons.payment_outlined,
                     children: [
                       _InfoRow(
                         label: 'Método',
-                        value: _schedule.paymentMethod,
+                        value: _trip.paymentMethodLabel,
                       ),
                       _InfoRow(
                         label: 'Valor estimado',
-                        value: 'R\$ ${_schedule.price.toStringAsFixed(2)}',
+                        value: 'R\$ ${_trip.price.toStringAsFixed(2)}',
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
 
-                  // Client observations
-                  if (_schedule.clientObservations != null) ...[
+                  if (_trip.observations != null &&
+                      _trip.observations!.isNotEmpty) ...[
                     _SectionCard(
                       title: 'Observações do cliente',
                       icon: Icons.note_outlined,
@@ -245,7 +283,7 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Text(
-                            _schedule.clientObservations!,
+                            _trip.observations!,
                             style: const TextStyle(
                               fontSize: 14,
                               color: AppColors.textPrimary,
@@ -257,7 +295,6 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
                     const SizedBox(height: 12),
                   ],
 
-                  // Driver observation field
                   if (_canRespond) ...[
                     Container(
                       width: double.infinity,
@@ -309,8 +346,8 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
                               }
                             },
                             decoration: InputDecoration(
-                              hintText: 'Escreva uma observação '
-                                  '(obrigatório ao recusar)',
+                              hintText:
+                                  'Escreva uma observação (obrigatório ao recusar)',
                               hintStyle: TextStyle(
                                 color: Colors.grey[400],
                                 fontSize: 14,
@@ -339,8 +376,6 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
               ),
             ),
           ),
-
-          // Action buttons
           if (_canRespond) _buildActionBar(),
         ],
       ),
@@ -350,7 +385,10 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
   Widget _buildActionBar() {
     return Container(
       padding: EdgeInsets.fromLTRB(
-        24, 16, 24, MediaQuery.of(context).padding.bottom + 16,
+        24,
+        16,
+        24,
+        MediaQuery.of(context).padding.bottom + 16,
       ),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -368,23 +406,17 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
             child: SizedBox(
               height: 52,
               child: OutlinedButton(
-                onPressed: _reject,
+                onPressed: _isLoading ? null : _reject,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.red.shade400,
-                  side: BorderSide(
-                    color: Colors.red.shade400,
-                    width: 1.5,
-                  ),
+                  side: BorderSide(color: Colors.red.shade400, width: 1.5),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
                 child: const Text(
                   'Recusar',
-                  style: TextStyle(
-                    fontFamily: 'OutfitBlack',
-                    fontSize: 15,
-                  ),
+                  style: TextStyle(fontFamily: 'OutfitBlack', fontSize: 15),
                 ),
               ),
             ),
@@ -394,7 +426,7 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
             child: SizedBox(
               height: 52,
               child: ElevatedButton(
-                onPressed: _accept,
+                onPressed: _isLoading ? null : _accept,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF2ECC71),
                   foregroundColor: Colors.white,
@@ -403,13 +435,20 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
                   ),
                   elevation: 0,
                 ),
-                child: const Text(
-                  'Aceitar',
-                  style: TextStyle(
-                    fontFamily: 'OutfitBlack',
-                    fontSize: 15,
-                  ),
-                ),
+                child: _isLoading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text(
+                        'Aceitar',
+                        style: TextStyle(
+                            fontFamily: 'OutfitBlack', fontSize: 15),
+                      ),
               ),
             ),
           ),
@@ -420,14 +459,15 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
 }
 
 class _StatusChip extends StatelessWidget {
-  final MockSchedule schedule;
+  final TripData trip;
+  const _StatusChip({required this.trip});
 
-  const _StatusChip({required this.schedule});
-
-  Color get _color => switch (schedule.status) {
-        ScheduleStatus.awaitingClientApproval => Colors.orange,
-        ScheduleStatus.awaitingDriverConfirmation => AppColors.secondary,
-        ScheduleStatus.scheduled => const Color(0xFF2ECC71),
+  Color get _color => switch (trip.status) {
+        'awaiting_client_confirmation' => Colors.orange,
+        'awaiting_driver_confirmation' => AppColors.secondary,
+        'scheduled' => const Color(0xFF2ECC71),
+        'searching_drivers' => AppColors.secondary,
+        _ => AppColors.textSecondary,
       };
 
   @override
@@ -444,7 +484,7 @@ class _StatusChip extends StatelessWidget {
           Icon(Icons.circle, size: 8, color: _color),
           const SizedBox(width: 8),
           Text(
-            schedule.statusLabel,
+            trip.statusLabel,
             style: TextStyle(
               fontFamily: 'QuasimodoSemiBold',
               fontSize: 13,
@@ -516,7 +556,7 @@ class _InfoRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 100,
+            width: 110,
             child: Text(
               label,
               style: const TextStyle(

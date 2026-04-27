@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
-import 'package:kz_servicos_prestador/features/chat/data/models/mock_message.dart';
+import 'package:kz_servicos_prestador/core/services/auth_state.dart';
+import 'package:kz_servicos_prestador/core/services/chat_service.dart';
 
 class MessagesPage extends StatefulWidget {
   const MessagesPage({super.key});
@@ -12,6 +13,10 @@ class MessagesPage extends StatefulWidget {
 
 class _MessagesPageState extends State<MessagesPage>
     with SingleTickerProviderStateMixin {
+  final _chatService = ChatService();
+  List<ChatRoomData> _rooms = [];
+  bool _loading = true;
+
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
 
@@ -26,6 +31,7 @@ class _MessagesPageState extends State<MessagesPage>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
     _pulseController.repeat(reverse: true);
+    _load();
   }
 
   @override
@@ -34,20 +40,19 @@ class _MessagesPageState extends State<MessagesPage>
     super.dispose();
   }
 
-  List<MockConversation> get _sortedConversations {
-    final conversations = List<MockConversation>.from(MockConversation.samples);
-    conversations.sort((a, b) {
-      if (a.unreadCount > 0 && b.unreadCount == 0) return -1;
-      if (a.unreadCount == 0 && b.unreadCount > 0) return 1;
-      return b.lastMessageAt.compareTo(a.lastMessageAt);
-    });
-    return conversations;
+  Future<void> _load() async {
+    final userId = AuthState.userId ?? '';
+    final rooms = await _chatService.getChatRooms(userId);
+    if (mounted) {
+      setState(() {
+        _rooms = rooms;
+        _loading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final conversations = _sortedConversations;
-
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -68,53 +73,56 @@ class _MessagesPageState extends State<MessagesPage>
       ),
       body: Stack(
         children: [
-          conversations.isEmpty
-              ? const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.chat_bubble_outline,
-                          size: 64, color: AppColors.textSecondary),
-                      SizedBox(height: 16),
-                      Text(
-                        'Nenhuma mensagem',
-                        style: TextStyle(
-                          fontFamily: 'QuasimodoSemiBold',
-                          fontSize: 16,
-                          color: AppColors.textSecondary,
-                        ),
+          _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _rooms.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.chat_bubble_outline,
+                              size: 64, color: AppColors.textSecondary),
+                          SizedBox(height: 16),
+                          Text(
+                            'Nenhuma mensagem',
+                            style: TextStyle(
+                              fontFamily: 'QuasimodoSemiBold',
+                              fontSize: 16,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-                  itemCount: conversations.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
-                  itemBuilder: (_, i) {
-                    final c = conversations[i];
-                    final lastMsg = c.messages.last;
-                    final hasUnread = c.unreadCount > 0;
-                    if (hasUnread) {
-                      return AnimatedBuilder(
-                        animation: _pulseAnimation,
-                        builder: (context, child) {
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+                        itemCount: _rooms.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 8),
+                        itemBuilder: (_, i) {
+                          final room = _rooms[i];
+                          final hasUnread = room.unreadCount > 0;
+                          if (hasUnread) {
+                            return AnimatedBuilder(
+                              animation: _pulseAnimation,
+                              builder: (context, child) {
+                                return _ConversationTile(
+                                  room: room,
+                                  onTap: () =>
+                                      context.push('/chat/${room.id}'),
+                                  pulseAlpha: _pulseAnimation.value,
+                                );
+                              },
+                            );
+                          }
                           return _ConversationTile(
-                            conversation: c,
-                            lastMessage: lastMsg,
-                            onTap: () => context.push('/chat/${c.id}'),
-                            pulseAlpha: _pulseAnimation.value,
+                            room: room,
+                            onTap: () => context.push('/chat/${room.id}'),
                           );
                         },
-                      );
-                    }
-                    return _ConversationTile(
-                      conversation: c,
-                      lastMessage: lastMsg,
-                      onTap: () => context.push('/chat/${c.id}'),
-                    );
-                  },
-                ),
+                      ),
+                    ),
           Positioned(
             bottom: MediaQuery.of(context).padding.bottom + 16,
             right: 16,
@@ -132,21 +140,19 @@ class _MessagesPageState extends State<MessagesPage>
 }
 
 class _ConversationTile extends StatelessWidget {
-  final MockConversation conversation;
-  final MockChatMessage lastMessage;
+  final ChatRoomData room;
   final VoidCallback onTap;
   final double? pulseAlpha;
 
   const _ConversationTile({
-    required this.conversation,
-    required this.lastMessage,
+    required this.room,
     required this.onTap,
     this.pulseAlpha,
   });
 
   @override
   Widget build(BuildContext context) {
-    final unread = conversation.unreadCount;
+    final unread = room.unreadCount;
     final hasUnread = unread > 0;
 
     return GestureDetector(
@@ -175,9 +181,13 @@ class _ConversationTile extends StatelessWidget {
             CircleAvatar(
               radius: 24,
               backgroundColor: AppColors.secondary.withValues(alpha: 0.1),
-              child: const Icon(
-                Icons.support_agent,
-                color: AppColors.secondary,
+              child: Text(
+                room.clientName.isNotEmpty ? room.clientName[0] : '?',
+                style: const TextStyle(
+                  fontFamily: 'OutfitBlack',
+                  fontSize: 18,
+                  color: AppColors.secondary,
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -185,39 +195,40 @@ class _ConversationTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'KZ Serviços',
-                    style: TextStyle(
+                  Text(
+                    room.clientName,
+                    style: const TextStyle(
                       fontFamily: 'OutfitBlack',
                       fontSize: 15,
                       color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    '${conversation.origin} → ${conversation.destination}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
+                  if (room.origin.isNotEmpty || room.destination.isNotEmpty)
+                    Text(
+                      '${room.origin} → ${room.destination}',
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    lastMessage.text,
-                    style: TextStyle(
-                      fontFamily: 'QuasimodoSemiBold',
-                      fontSize: 13,
-                      color: hasUnread
-                          ? AppColors.textPrimary
-                          : AppColors.textSecondary,
-                      fontWeight:
-                          hasUnread ? FontWeight.w700 : FontWeight.normal,
+                  if (room.lastMessage != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      room.lastMessage!,
+                      style: TextStyle(
+                        fontFamily: 'QuasimodoSemiBold',
+                        fontSize: 13,
+                        color: hasUnread
+                            ? AppColors.textPrimary
+                            : AppColors.textSecondary,
+                        fontWeight:
+                            hasUnread ? FontWeight.w700 : FontWeight.normal,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  ],
                 ],
               ),
             ),

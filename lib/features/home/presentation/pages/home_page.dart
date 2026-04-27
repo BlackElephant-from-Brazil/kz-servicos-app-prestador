@@ -11,8 +11,9 @@ import 'package:kz_servicos_prestador/core/constants/map_styles.dart';
 import 'package:kz_servicos_prestador/core/widgets/provider_bottom_nav.dart';
 import 'package:kz_servicos_prestador/features/home/presentation/widgets/online_toggle.dart';
 import 'package:kz_servicos_prestador/features/home/presentation/widgets/trip_request_card.dart';
-import 'package:kz_servicos_prestador/features/chat/data/models/mock_message.dart';
-import 'package:kz_servicos_prestador/features/trip/data/models/mock_trip_request.dart';
+import 'package:kz_servicos_prestador/core/models/trip_data.dart';
+import 'package:kz_servicos_prestador/core/services/auth_state.dart';
+import 'package:kz_servicos_prestador/core/services/trip_service.dart';
 import 'package:kz_servicos_prestador/features/trip/data/services/directions_service.dart';
 
 class HomePage extends StatefulWidget {
@@ -30,7 +31,8 @@ class _HomePageState extends State<HomePage>
   bool _isOnline = true;
   bool _showRequest = false;
   Timer? _requestTimer;
-  final _requests = MockTripRequest.pendingRequests;
+  final _tripService = TripService();
+  List<TripData> _requests = [];
   int _currentRequestIndex = 0;
   Set<Polyline> _polylines = {};
   Set<Marker> _markers = {};
@@ -54,19 +56,35 @@ class _HomePageState extends State<HomePage>
   double? _msgIconLeft;
   double? _msgIconTop;
 
-  MockTripRequest get _currentRequest => _requests[_currentRequestIndex];
+  TripData get _currentRequest => _requests[_currentRequestIndex];
 
-  int get _totalUnreadMessages => MockConversation.samples
-      .fold<int>(0, (sum, c) => sum + c.unreadCount);
+  // Unread messages — driven by real chat later
+  int get _totalUnreadMessages => 0;
 
   @override
   void initState() {
     super.initState();
     _initLocation();
     _initIcons();
-    // Show first request after 30s delay
-    if (_requests.isNotEmpty) {
-      _scheduleNextRequest();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final driverProfileId = AuthState.driverProfileId;
+    debugPrint('[HomePage] _load — driverProfileId: $driverProfileId');
+    if (driverProfileId == null) {
+      debugPrint('[HomePage] driverProfileId é null — usuário não é motorista ou sessão não restaurou esse campo');
+      return;
+    }
+    final trips = await _tripService.getDriverInvitations(driverProfileId);
+    debugPrint('[HomePage] convites recebidos: ${trips.length}');
+    if (mounted && trips.isNotEmpty) {
+      setState(() {
+        _requests = trips;
+        _currentRequestIndex = 0;
+        _showRequest = true;
+      });
+      _fetchRouteForCurrentRequest();
     }
   }
 
@@ -77,13 +95,10 @@ class _HomePageState extends State<HomePage>
     super.dispose();
   }
 
-  void _scheduleNextRequest() {
-    _requestTimer?.cancel();
-    _requestTimer = Timer(const Duration(seconds: 30), () {
-      if (!mounted || !_isOnline) return;
-      setState(() => _showRequest = true);
-      _fetchRouteForCurrentRequest();
-    });
+  void _showNextRequest() {
+    if (!mounted || !_isOnline || _requests.isEmpty) return;
+    setState(() => _showRequest = true);
+    _fetchRouteForCurrentRequest();
   }
 
   Future<void> _initIcons() async {
@@ -145,7 +160,7 @@ class _HomePageState extends State<HomePage>
     _stopPulseAnimation();
     _requestTimer?.cancel();
     if (value && _requests.isNotEmpty) {
-      _scheduleNextRequest();
+      _showNextRequest();
     }
   }
 
@@ -480,22 +495,108 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  void _onAccept() {
+  Future<void> _onAccept() async {
+    final driverProfileId = AuthState.driverProfileId;
+    if (driverProfileId == null) return;
+    final trip = _requests[_currentRequestIndex];
+    final ok = await _tripService.acceptCandidate(trip.id, driverProfileId);
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível aceitar a solicitação.')),
+      );
+      return;
+    }
     _stopPulseAnimation();
-    context.push('/active-trip', extra: _requests[_currentRequestIndex]);
+    _advanceToNextRequest();
   }
 
-  void _onReject() {
-    _stopPulseAnimation();
-    if (_currentRequestIndex < _requests.length - 1) {
-      setState(() {
-        _currentRequestIndex++;
-        _showRequest = false;
-        _polylines = {};
-        _markers = {};
-      });
-      _scheduleNextRequest();
+  Future<void> _onReject() async {
+    final observation = await _showRejectDialog();
+    if (observation == null) return; // cancelado
+    final driverProfileId = AuthState.driverProfileId;
+    if (driverProfileId == null) return;
+    final trip = _requests[_currentRequestIndex];
+    final ok = await _tripService.rejectCandidate(
+      trip.id,
+      driverProfileId,
+      observation: observation.isEmpty ? null : observation,
+    );
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível recusar a solicitação.')),
+      );
+      return;
     }
+    _stopPulseAnimation();
+    _advanceToNextRequest();
+  }
+
+  void _advanceToNextRequest() {
+    final remaining = List<TripData>.from(_requests)..removeAt(_currentRequestIndex);
+    setState(() {
+      _requests = remaining;
+      _currentRequestIndex = 0;
+      _showRequest = false;
+      _polylines = {};
+      _markers = {};
+    });
+    if (_requests.isNotEmpty) {
+      _showNextRequest();
+    }
+  }
+
+  Future<String?> _showRejectDialog() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Recusar solicitação',
+          style: TextStyle(fontFamily: 'OutfitBlack', fontSize: 18),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Você pode adicionar uma observação opcional explicando o motivo:',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                hintText: 'Observação (opcional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: Text(
+              'Recusar',
+              style: TextStyle(
+                color: Colors.red.shade400,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return result;
   }
 
   @override
@@ -581,7 +682,7 @@ class _HomePageState extends State<HomePage>
               right: 16,
               child: GestureDetector(
                 onTap: () => context.push(
-                  '/trip-details',
+                  '/schedule-detail?fromHome=true',
                   extra: _requests[_currentRequestIndex],
                 ),
                 child: TripRequestCard(

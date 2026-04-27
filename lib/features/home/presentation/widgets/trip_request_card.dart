@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
-import 'package:kz_servicos_prestador/features/trip/data/models/mock_trip_request.dart';
+import 'package:kz_servicos_prestador/core/models/trip_data.dart';
 
 class TripRequestCard extends StatelessWidget {
-  final MockTripRequest request;
+  final TripData request;
   final VoidCallback onAccept;
   final VoidCallback onReject;
 
@@ -67,50 +67,12 @@ class TripRequestCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  'R\$ ${request.estimatedPrice.toStringAsFixed(2)}',
+                  'R\$ ${request.price.toStringAsFixed(2)}',
                   style: const TextStyle(
                     fontFamily: 'OutfitBlack',
                     fontSize: 16,
                     color: Color(0xFF2ECC71),
                   ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // Distance info
-          Row(
-            children: [
-              const Icon(
-                Icons.near_me_rounded,
-                size: 16,
-                color: AppColors.secondary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '${request.driverDistanceKm.toStringAsFixed(1)} km até embarque',
-                style: const TextStyle(
-                  fontFamily: 'OutfitBlack',
-                  fontSize: 13,
-                  color: AppColors.secondary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Icon(
-                Icons.route_rounded,
-                size: 16,
-                color: Colors.grey.shade500,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '${request.distanceKm.toStringAsFixed(1)} km até destino',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade600,
                 ),
               ),
             ],
@@ -173,7 +135,7 @@ class TripRequestCard extends StatelessWidget {
                     ),
                   ),
                   child: const Text(
-                    'Recusar',
+                    'Recusar solicitação',
                     style: TextStyle(
                       fontFamily: 'OutfitBlack',
                       fontSize: 14,
@@ -195,7 +157,7 @@ class TripRequestCard extends StatelessWidget {
                     ),
                   ),
                   child: const Text(
-                    'Aceitar corrida',
+                    'Aceitar solicitação',
                     style: TextStyle(
                       fontFamily: 'OutfitBlack',
                       fontSize: 14,

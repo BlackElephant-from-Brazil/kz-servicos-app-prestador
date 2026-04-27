@@ -4,8 +4,11 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
+import 'package:kz_servicos_prestador/core/models/driver_profile_data.dart';
+import 'package:kz_servicos_prestador/core/services/auth_state.dart';
+import 'package:kz_servicos_prestador/core/services/driver_service.dart';
 import 'package:kz_servicos_prestador/core/widgets/provider_bottom_nav.dart';
-import 'package:kz_servicos_prestador/features/profile/data/models/mock_provider.dart';
+import 'package:kz_servicos_prestador/routes/app_router.dart';
 
 class ProfilePage extends StatefulWidget {
   final ValueChanged<int> onNavTap;
@@ -17,8 +20,27 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  final _provider = MockProvider.sample;
+  final _driverService = DriverService();
+  DriverProfileData? _profile;
+  bool _loading = true;
   String? _avatarPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final userId = AuthState.userId ?? '';
+    final profile = await _driverService.getDriverProfile(userId);
+    if (mounted) {
+      setState(() {
+        _profile = profile;
+        _loading = false;
+      });
+    }
+  }
 
   Future<void> _onEditPhoto() async {
     final source = await showModalBottomSheet<ImageSource>(
@@ -57,56 +79,63 @@ class _ProfilePageState extends State<ProfilePage> {
       body: Stack(
         children: [
           SafeArea(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding + 100),
-              child: Column(
-                children: [
-                  _buildHeader(),
-                  const SizedBox(height: 24),
-                  _buildOnlineStatus(),
-                  const SizedBox(height: 16),
-                  _buildStatsRow(),
-                  const SizedBox(height: 24),
-                  _buildSection('Veículo', [
-                    _InfoRow(
-                      icon: Icons.directions_car,
-                      label: 'Modelo',
-                      value: _provider.vehicleModel ?? '-',
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                          24, 24, 24, bottomPadding + 100),
+                      child: Column(
+                        children: [
+                          _buildHeader(),
+                          const SizedBox(height: 24),
+                          _buildOnlineStatus(),
+                          const SizedBox(height: 16),
+                          _buildStatsRow(),
+                          const SizedBox(height: 24),
+                          _buildSection('Veículo', [
+                            _InfoRow(
+                              icon: Icons.directions_car,
+                              label: 'Modelo',
+                              value: _profile?.vehicle?.fullModel ?? '-',
+                            ),
+                            _InfoRow(
+                              icon: Icons.pin,
+                              label: 'Placa',
+                              value: _profile?.vehicle?.licensePlate ?? '-',
+                            ),
+                            _InfoRow(
+                              icon: Icons.palette,
+                              label: 'Cor',
+                              value: _profile?.vehicle?.color ?? '-',
+                            ),
+                            _InfoRow(
+                              icon: Icons.calendar_today,
+                              label: 'Ano',
+                              value: _profile?.vehicle?.year.toString() ?? '-',
+                            ),
+                          ]),
+                          const SizedBox(height: 16),
+                          _buildSection('Documentos', [
+                            _InfoRow(
+                              icon: Icons.credit_card,
+                              label: 'CNH',
+                              value: _profile?.cnhNumber ?? '-',
+                            ),
+                            _InfoRow(
+                              icon: Icons.category,
+                              label: 'Categoria',
+                              value: _profile?.cnhCategory ?? '-',
+                            ),
+                          ]),
+                          const SizedBox(height: 16),
+                          _buildMenuItems(),
+                        ],
+                      ),
                     ),
-                    _InfoRow(
-                      icon: Icons.pin,
-                      label: 'Placa',
-                      value: _provider.vehiclePlate ?? '-',
-                    ),
-                    _InfoRow(
-                      icon: Icons.palette,
-                      label: 'Cor',
-                      value: _provider.vehicleColor ?? '-',
-                    ),
-                    _InfoRow(
-                      icon: Icons.calendar_today,
-                      label: 'Ano',
-                      value: _provider.vehicleYear?.toString() ?? '-',
-                    ),
-                  ]),
-                  const SizedBox(height: 16),
-                  _buildSection('Documentos', [
-                    _InfoRow(
-                      icon: Icons.credit_card,
-                      label: 'CNH',
-                      value: _provider.cnhNumber ?? '-',
-                    ),
-                    _InfoRow(
-                      icon: Icons.category,
-                      label: 'Categoria',
-                      value: _provider.cnhCategory ?? '-',
-                    ),
-                  ]),
-                  const SizedBox(height: 16),
-                  _buildMenuItems(),
-                ],
-              ),
-            ),
+                  ),
           ),
           Positioned(
             bottom: bottomPadding + 12,
@@ -123,6 +152,10 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildHeader() {
+    final name = _profile?.name ?? AuthState.userName ?? '';
+    final email = _profile?.email ?? AuthState.userEmail ?? '';
+    final initial = name.isNotEmpty ? name[0] : '?';
+
     return Column(
       children: [
         Stack(
@@ -130,12 +163,11 @@ class _ProfilePageState extends State<ProfilePage> {
             CircleAvatar(
               radius: 48,
               backgroundColor: AppColors.highlight.withValues(alpha: 0.15),
-              backgroundImage: _avatarPath != null
-                  ? FileImage(File(_avatarPath!))
-                  : null,
+              backgroundImage:
+                  _avatarPath != null ? FileImage(File(_avatarPath!)) : null,
               child: _avatarPath == null
                   ? Text(
-                      _provider.name[0],
+                      initial,
                       style: const TextStyle(
                         fontFamily: 'OutfitBlack',
                         fontSize: 36,
@@ -157,11 +189,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
                   ),
-                  child: const Icon(
-                    Icons.edit,
-                    color: Colors.white,
-                    size: 16,
-                  ),
+                  child: const Icon(Icons.edit, color: Colors.white, size: 16),
                 ),
               ),
             ),
@@ -169,7 +197,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 12),
         Text(
-          _provider.name,
+          name,
           style: const TextStyle(
             fontFamily: 'OutfitBlack',
             fontSize: 22,
@@ -178,21 +206,19 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 4),
         Text(
-          _provider.email,
-          style: const TextStyle(
-            fontSize: 14,
-            color: AppColors.textSecondary,
-          ),
+          email,
+          style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
         ),
       ],
     );
   }
 
   Widget _buildOnlineStatus() {
+    final isAvailable = _profile?.isAvailable ?? false;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(
-        color: _provider.isOnline
+        color: isAvailable
             ? const Color(0xFF2ECC71).withValues(alpha: 0.1)
             : Colors.red.shade50,
         borderRadius: BorderRadius.circular(14),
@@ -205,18 +231,18 @@ class _ProfilePageState extends State<ProfilePage> {
             height: 10,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: _provider.isOnline
+              color: isAvailable
                   ? const Color(0xFF2ECC71)
                   : Colors.red.shade400,
             ),
           ),
           const SizedBox(width: 8),
           Text(
-            _provider.isOnline ? 'Online' : 'Offline',
+            isAvailable ? 'Online' : 'Offline',
             style: TextStyle(
               fontFamily: 'OutfitBlack',
               fontSize: 14,
-              color: _provider.isOnline
+              color: isAvailable
                   ? const Color(0xFF2ECC71)
                   : Colors.red.shade400,
             ),
@@ -231,21 +257,21 @@ class _ProfilePageState extends State<ProfilePage> {
       children: [
         _StatCard(
           icon: Icons.star,
-          value: _provider.rating.toStringAsFixed(1),
+          value: (_profile?.averageRating ?? 0).toStringAsFixed(1),
           label: 'Avaliação',
           color: AppColors.highlight,
         ),
         const SizedBox(width: 12),
         _StatCard(
           icon: Icons.directions_car,
-          value: '${_provider.completedTrips}',
-          label: 'Viagens',
+          value: '${_profile?.totalRatings ?? 0}',
+          label: 'Avaliações',
           color: AppColors.secondary,
         ),
         const SizedBox(width: 12),
         _StatCard(
           icon: Icons.calendar_today,
-          value: 'Desde ${_provider.memberSince}',
+          value: 'Desde ${_profile?.memberSince ?? '-'}',
           label: 'Membro',
           color: const Color(0xFF2ECC71),
         ),
@@ -335,6 +361,44 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  void _showLogoutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Sair da conta',
+          style: TextStyle(fontFamily: 'OutfitBlack', fontSize: 18),
+        ),
+        content: const Text(
+          'Tem certeza que deseja sair da sua conta?',
+          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              AppRouter.logout(context);
+            },
+            child: Text(
+              'Sair',
+              style: TextStyle(
+                color: Colors.red.shade400,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMenuItems() {
     return Container(
       decoration: BoxDecoration(
@@ -367,7 +431,7 @@ class _ProfilePageState extends State<ProfilePage> {
             icon: Icons.logout,
             label: 'Sair',
             color: Colors.red.shade400,
-            onTap: () {},
+            onTap: () => _showLogoutDialog(context),
             showDivider: false,
           ),
         ],
@@ -415,9 +479,7 @@ class _StatCard extends StatelessWidget {
             Text(
               label,
               style: const TextStyle(
-                fontSize: 11,
-                color: AppColors.textSecondary,
-              ),
+                  fontSize: 11, color: AppColors.textSecondary),
             ),
           ],
         ),
@@ -447,10 +509,8 @@ class _InfoRow extends StatelessWidget {
           const SizedBox(width: 10),
           Text(
             '$label:',
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-            ),
+            style:
+                const TextStyle(fontSize: 13, color: AppColors.textSecondary),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -501,9 +561,7 @@ class _HelpContactRow extends StatelessWidget {
                 Text(
                   label,
                   style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
+                      fontSize: 12, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -517,11 +575,8 @@ class _HelpContactRow extends StatelessWidget {
               ],
             ),
           ),
-          const Icon(
-            Icons.open_in_new,
-            size: 16,
-            color: AppColors.textSecondary,
-          ),
+          const Icon(Icons.open_in_new,
+              size: 16, color: AppColors.textSecondary),
         ],
       ),
     );
@@ -557,18 +612,12 @@ class _MenuItem extends StatelessWidget {
               color: color ?? AppColors.textPrimary,
             ),
           ),
-          trailing: Icon(
-            Icons.chevron_right,
-            color: color ?? AppColors.textSecondary,
-          ),
+          trailing: Icon(Icons.chevron_right,
+              color: color ?? AppColors.textSecondary),
           onTap: onTap,
         ),
         if (showDivider)
-          Divider(
-            height: 1,
-            indent: 56,
-            color: Colors.grey.shade200,
-          ),
+          Divider(height: 1, indent: 56, color: Colors.grey.shade200),
       ],
     );
   }
