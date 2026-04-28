@@ -261,17 +261,20 @@ class EarningEntry {
   final double amount;
   final DateTime date;
   final EarningType type;
+  final bool isPaid;
   const EarningEntry({
     required this.id,
     required this.description,
     required this.amount,
     required this.date,
     required this.type,
+    this.isPaid = false,
   });
 }
 
 class EarningsData {
   final double availableBalance;
+  final double totalReceived;
   final double currentMonthTotal;
   final double previousMonthTotal;
   final PeriodEarning dailyEarning;
@@ -284,6 +287,7 @@ class EarningsData {
 
   const EarningsData({
     required this.availableBalance,
+    required this.totalReceived,
     required this.currentMonthTotal,
     required this.previousMonthTotal,
     required this.dailyEarning,
@@ -307,6 +311,7 @@ class EarningsData {
 
   factory EarningsData.empty() => const EarningsData(
         availableBalance: 0,
+        totalReceived: 0,
         currentMonthTotal: 0,
         previousMonthTotal: 0,
         dailyEarning: PeriodEarning(total: 0, trips: 0),
@@ -326,41 +331,54 @@ class EarningsData {
     final prevMonthStart = DateTime(now.year, now.month - 1, 1);
     final yearStart = DateTime(now.year, 1, 1);
 
-    // Trips já recebidos pelo motorista (is_paid = true) → período e comparativo
     final paidTrips = trips.where((t) => t['is_paid'] == true).toList();
-
-    // Corridas finalizadas ainda não pagas → saldo disponível para saque
     final unpaidFinished = trips
         .where((t) => t['is_paid'] != true && t['status'] == 'finished')
         .toList();
 
+    // Valor a receber: corridas finalizadas ainda não pagas
     double availableBalance = 0;
     for (final t in unpaidFinished) {
       availableBalance +=
           ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
     }
 
-    double daily = 0, weekly = 0, monthly = 0, prevMonthly = 0, yearly = 0;
+    // Total recebido: soma de todas as corridas pagas (histórico completo)
+    double totalReceived = 0;
+    for (final t in paidTrips) {
+      totalReceived +=
+          ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
+    }
+
+    // Ganhos por período (apenas pagas) — mantidos no modelo para uso futuro
+    double daily = 0, weekly = 0, monthly = 0, yearly = 0;
     int dailyCount = 0, weeklyCount = 0, monthlyCount = 0, yearlyCount = 0;
-
-    final monthMap = <String, MonthlyEarning>{};
-
     for (final t in paidTrips) {
       final price =
           ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
-      // Usa payment_date se disponível, senão finished_at
-      final dateStr =
-          (t['payment_date'] ?? t['finished_at']) as String?;
+      final dateStr = (t['payment_date'] ?? t['finished_at']) as String?;
+      if (dateStr == null) continue;
+      final date = DateTime.parse(dateStr);
+      if (!date.isBefore(yearStart)) { yearly += price; yearlyCount++; }
+      if (!date.isBefore(monthStart)) { monthly += price; monthlyCount++; }
+      if (!date.isBefore(weekStart)) { weekly += price; weeklyCount++; }
+      if (!date.isBefore(todayStart)) { daily += price; dailyCount++; }
+    }
+
+    // Histórico mensal: TODAS as corridas (pagas e não pagas) agrupadas por mês
+    double currentMonthAll = 0, prevMonthAll = 0;
+    final monthMap = <String, MonthlyEarning>{};
+    for (final t in trips) {
+      final price =
+          ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
+      final dateStr = (t['payment_date'] ?? t['finished_at']) as String?;
       if (dateStr == null) continue;
       final date = DateTime.parse(dateStr);
 
-      if (!date.isBefore(yearStart)) { yearly += price; yearlyCount++; }
-      if (!date.isBefore(monthStart)) { monthly += price; monthlyCount++; }
+      if (!date.isBefore(monthStart)) currentMonthAll += price;
       if (!date.isBefore(prevMonthStart) && date.isBefore(monthStart)) {
-        prevMonthly += price;
+        prevMonthAll += price;
       }
-      if (!date.isBefore(weekStart)) { weekly += price; weeklyCount++; }
-      if (!date.isBefore(todayStart)) { daily += price; dailyCount++; }
 
       final key = '${date.year}-${date.month.toString().padLeft(2, '0')}';
       final existing = monthMap[key];
@@ -376,8 +394,8 @@ class EarningsData {
       ..sort((a, b) =>
           DateTime(a.year, a.month).compareTo(DateTime(b.year, b.month)));
 
-    // Extrato: últimas 10 corridas pagas
-    final entries = paidTrips.take(10).map((t) {
+    // Extrato: últimas 10 corridas do motorista (pagas e não pagas)
+    final entries = trips.take(10).map((t) {
       final price =
           ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
       final dateStr =
@@ -390,13 +408,15 @@ class EarningsData {
         amount: price,
         date: date,
         type: EarningType.trip,
+        isPaid: t['is_paid'] == true,
       );
     }).toList();
 
     return EarningsData(
       availableBalance: availableBalance,
-      currentMonthTotal: monthly,
-      previousMonthTotal: prevMonthly,
+      totalReceived: totalReceived,
+      currentMonthTotal: currentMonthAll,
+      previousMonthTotal: prevMonthAll,
       dailyEarning: PeriodEarning(total: daily, trips: dailyCount),
       weeklyEarning: PeriodEarning(total: weekly, trips: weeklyCount),
       monthlyEarning: PeriodEarning(total: monthly, trips: monthlyCount),

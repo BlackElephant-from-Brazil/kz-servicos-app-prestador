@@ -23,7 +23,6 @@ class _EarningsPageState extends State<EarningsPage> {
   EarningsData? _earnings;
   DriverProfileData? _profile;
   bool _loading = true;
-  String _selectedPeriod = 'Diário';
 
   @override
   void initState() {
@@ -46,13 +45,6 @@ class _EarningsPageState extends State<EarningsPage> {
       });
     }
   }
-
-  PeriodEarning _periodEarning(EarningsData e) => switch (_selectedPeriod) {
-        'Semanal' => e.weeklyEarning,
-        'Mensal' => e.monthlyEarning,
-        'Anual' => e.yearlyEarning,
-        _ => e.dailyEarning,
-      };
 
   @override
   Widget build(BuildContext context) {
@@ -85,13 +77,7 @@ class _EarningsPageState extends State<EarningsPage> {
                           const SizedBox(height: 20),
                           _BalanceCard(earnings: _earnings!),
                           const SizedBox(height: 16),
-                          _PeriodEarningsCard(
-                            selectedPeriod: _selectedPeriod,
-                            onPeriodChanged: (p) =>
-                                setState(() => _selectedPeriod = p),
-                            earning: _periodEarning(_earnings!),
-                            totalTrips: _earnings!.totalTrips,
-                          ),
+                          _TotalReceivedCard(earnings: _earnings!),
                           const SizedBox(height: 16),
                           EarningsChartCard(
                             monthlyHistory: _earnings!.monthlyHistory,
@@ -131,12 +117,6 @@ class _BalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final lastTx = earnings.lastTransaction;
-    final isPositive = lastTx.type != EarningType.withdrawal;
-    final txColor = isPositive ? const Color(0xFF2ECC71) : Colors.red.shade300;
-    final txSign = isPositive ? '+' : '-';
-    final txAmount = lastTx.amount.abs();
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -159,64 +139,16 @@ class _BalanceCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Saldo disponível',
+            'Valor a receber',
             style: TextStyle(fontSize: 14, color: Colors.white70),
           ),
           const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                'R\$ ${earnings.availableBalance.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontFamily: 'OutfitBlack',
-                  fontSize: 32,
-                  color: Colors.white,
-                ),
-              ),
-              if (lastTx.amount > 0) ...[
-                const SizedBox(width: 12),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: txColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '$txSign R\$ ${txAmount.toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontFamily: 'OutfitBlack',
-                        fontSize: 13,
-                        color: txColor,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {},
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: AppColors.secondary,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: const Text(
-                'Solicitar saque',
-                style: TextStyle(fontFamily: 'OutfitBlack', fontSize: 14),
-              ),
+          Text(
+            'R\$ ${earnings.availableBalance.toStringAsFixed(2)}',
+            style: const TextStyle(
+              fontFamily: 'OutfitBlack',
+              fontSize: 32,
+              color: Colors.white,
             ),
           ),
         ],
@@ -225,20 +157,10 @@ class _BalanceCard extends StatelessWidget {
   }
 }
 
-class _PeriodEarningsCard extends StatelessWidget {
-  final String selectedPeriod;
-  final ValueChanged<String> onPeriodChanged;
-  final PeriodEarning earning;
-  final int totalTrips;
+class _TotalReceivedCard extends StatelessWidget {
+  final EarningsData earnings;
 
-  const _PeriodEarningsCard({
-    required this.selectedPeriod,
-    required this.onPeriodChanged,
-    required this.earning,
-    required this.totalTrips,
-  });
-
-  static const _periods = ['Diário', 'Semanal', 'Mensal', 'Anual'];
+  const _TotalReceivedCard({required this.earnings});
 
   @override
   Widget build(BuildContext context) {
@@ -252,41 +174,17 @@ class _PeriodEarningsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: _periods.map((p) {
-              final isActive = p == selectedPeriod;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: GestureDetector(
-                  onTap: () => onPeriodChanged(p),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isActive ? AppColors.highlight : Colors.transparent,
-                      borderRadius: BorderRadius.circular(20),
-                      border: isActive
-                          ? null
-                          : Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: Text(
-                      p,
-                      style: TextStyle(
-                        fontFamily: 'QuasimodoSemiBold',
-                        fontSize: 12,
-                        color: isActive ? Colors.white : AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
+          const Text(
+            'Total recebido',
+            style: TextStyle(
+              fontFamily: 'OutfitBlack',
+              fontSize: 14,
+              color: AppColors.textSecondary,
+            ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 8),
           Text(
-            'R\$ ${earning.total.toStringAsFixed(2)}',
+            'R\$ ${earnings.totalReceived.toStringAsFixed(2)}',
             style: const TextStyle(
               fontFamily: 'OutfitBlack',
               fontSize: 28,
@@ -295,7 +193,7 @@ class _PeriodEarningsCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '$totalTrips corridas',
+            '${earnings.totalTrips} corridas no total',
             style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
           ),
         ],
@@ -417,6 +315,9 @@ class _EntryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isNegative = entry.type == EarningType.withdrawal;
+    final statusColor =
+        entry.isPaid ? const Color(0xFF2ECC71) : Colors.orange.shade600;
+    final statusLabel = entry.isPaid ? 'Pago' : 'Não pago';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -449,13 +350,34 @@ class _EntryTile extends StatelessWidget {
                     color: AppColors.textPrimary,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  '${entry.date.day.toString().padLeft(2, '0')}/${entry.date.month.toString().padLeft(2, '0')}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text(
+                      '${entry.date.day.toString().padLeft(2, '0')}/${entry.date.month.toString().padLeft(2, '0')}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: TextStyle(
+                          fontFamily: 'QuasimodoSemiBold',
+                          fontSize: 10,
+                          color: statusColor,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
