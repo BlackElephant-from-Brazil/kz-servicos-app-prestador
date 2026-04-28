@@ -179,7 +179,8 @@ Tabela principal de viagens (transporte de passageiros).
 | `status` | trip_status | DEFAULT 'open' |
 | `estimated_price` | DECIMAL(10,2) | |
 | `final_price` | DECIMAL(10,2) | |
-| `is_paid` | BOOLEAN | DEFAULT false |
+| `is_paid` | BOOLEAN | DEFAULT false — cliente pagou a corrida |
+| `is_driver_paid` | BOOLEAN | DEFAULT false — motorista recebeu o repasse |
 | `payment_method` | payment_method | |
 | `payment_date` | TIMESTAMPTZ | |
 | `started_at` | TIMESTAMPTZ | |

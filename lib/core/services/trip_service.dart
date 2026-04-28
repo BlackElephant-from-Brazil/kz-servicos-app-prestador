@@ -214,14 +214,14 @@ class TripService {
     }
   }
 
-  /// Ganhos do motorista: busca todas as corridas atribuídas e agrega por is_paid.
+  /// Ganhos do motorista: busca todas as corridas atribuídas e agrega por is_driver_paid.
   Future<EarningsData> getDriverEarnings(String driverProfileId) async {
     try {
       final res = await _client
           .from('trips')
-          .select('id, estimated_price, final_price, scheduled_datetime, finished_at, payment_method, is_paid, status, payment_date')
+          .select('id, estimated_price, final_price, scheduled_datetime, finished_at, payment_method, is_driver_paid, status, payment_date')
           .eq('driver_profile_id', driverProfileId)
-          .order('finished_at', ascending: false);
+          .order('scheduled_datetime', ascending: false);
 
       final trips = (res as List).cast<Map<String, dynamic>>();
       return EarningsData.fromTrips(trips);
@@ -331,14 +331,12 @@ class EarningsData {
     final prevMonthStart = DateTime(now.year, now.month - 1, 1);
     final yearStart = DateTime(now.year, 1, 1);
 
-    final paidTrips = trips.where((t) => t['is_paid'] == true).toList();
-    final unpaidFinished = trips
-        .where((t) => t['is_paid'] != true && t['status'] == 'finished')
-        .toList();
+    final paidTrips = trips.where((t) => t['is_driver_paid'] == true).toList();
+    final unpaidTrips = trips.where((t) => t['is_driver_paid'] != true).toList();
 
-    // Valor a receber: corridas finalizadas ainda não pagas
+    // Valor a receber: TODAS as corridas onde is_driver_paid = false
     double availableBalance = 0;
-    for (final t in unpaidFinished) {
+    for (final t in unpaidTrips) {
       availableBalance +=
           ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
     }
@@ -356,7 +354,8 @@ class EarningsData {
     for (final t in paidTrips) {
       final price =
           ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
-      final dateStr = (t['payment_date'] ?? t['finished_at']) as String?;
+      final dateStr =
+          (t['payment_date'] ?? t['finished_at'] ?? t['scheduled_datetime']) as String?;
       if (dateStr == null) continue;
       final date = DateTime.parse(dateStr);
       if (!date.isBefore(yearStart)) { yearly += price; yearlyCount++; }
@@ -366,12 +365,14 @@ class EarningsData {
     }
 
     // Histórico mensal: TODAS as corridas (pagas e não pagas) agrupadas por mês
+    // Usa scheduled_datetime como fallback para garantir que todas apareçam no gráfico
     double currentMonthAll = 0, prevMonthAll = 0;
     final monthMap = <String, MonthlyEarning>{};
     for (final t in trips) {
       final price =
           ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
-      final dateStr = (t['payment_date'] ?? t['finished_at']) as String?;
+      final dateStr =
+          (t['payment_date'] ?? t['finished_at'] ?? t['scheduled_datetime']) as String?;
       if (dateStr == null) continue;
       final date = DateTime.parse(dateStr);
 
@@ -399,7 +400,7 @@ class EarningsData {
       final price =
           ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
       final dateStr =
-          (t['payment_date'] ?? t['finished_at'] ?? '') as String;
+          (t['payment_date'] ?? t['finished_at'] ?? t['scheduled_datetime'] ?? '') as String;
       final date =
           dateStr.isNotEmpty ? DateTime.parse(dateStr) : DateTime.now();
       return EarningEntry(
@@ -408,7 +409,7 @@ class EarningsData {
         amount: price,
         date: date,
         type: EarningType.trip,
-        isPaid: t['is_paid'] == true,
+        isPaid: t['is_driver_paid'] == true,
       );
     }).toList();
 
