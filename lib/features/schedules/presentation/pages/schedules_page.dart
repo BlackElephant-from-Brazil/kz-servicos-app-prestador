@@ -17,9 +17,12 @@ class SchedulesPage extends StatefulWidget {
 
 class _SchedulesPageState extends State<SchedulesPage> {
   final _tripService = TripService();
-  List<TripData> _all = [];
+  List<TripData> _scheduledTrips = [];
+  List<TripData> _invitationTrips = [];
   bool _loading = true;
   String _activeFilter = 'Todos';
+
+  static const _filters = ['Todos', 'Agendado', 'Aguardando aprovação'];
 
   @override
   void initState() {
@@ -28,28 +31,43 @@ class _SchedulesPageState extends State<SchedulesPage> {
   }
 
   Future<void> _load() async {
-    final profileId = AuthState.providerProfileId ?? '';
-    final trips = await _tripService.getDriverScheduledTrips(profileId);
-    if (mounted) setState(() { _all = trips; _loading = false; });
+    final driverId = AuthState.driverProfileId ?? '';
+    final results = await Future.wait([
+      _tripService.getDriverScheduledTrips(driverId),
+      _tripService.getDriverAcceptedCandidacies(driverId),
+    ]);
+    if (mounted) {
+      setState(() {
+        _scheduledTrips = results[0];
+        _invitationTrips = results[1];
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _startTrip(TripData trip) async {
+    final ok = await _tripService.startTrip(trip.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Viagem iniciada!' : 'Erro ao iniciar viagem'),
+        backgroundColor: ok ? const Color(0xFF2ECC71) : Colors.red.shade400,
+      ),
+    );
+    if (ok) _load();
   }
 
   List<TripData> get _filtered {
-    var items = _all.toList();
-    if (_activeFilter != 'Todos') {
-      items = items.where((t) => switch (_activeFilter) {
-        'Aguardando aprovação' => t.status == 'awaiting_client_confirmation',
-        'Aguardando confirmação' => t.status == 'awaiting_driver_confirmation',
-        'Agendado' => t.status == 'scheduled',
-        _ => true,
-      }).toList();
-    }
-    items.sort((a, b) {
-      final aPri = a.status == 'awaiting_driver_confirmation' ? 0 : 1;
-      final bPri = b.status == 'awaiting_driver_confirmation' ? 0 : 1;
-      final cmp = aPri.compareTo(bPri);
-      return cmp != 0 ? cmp : a.scheduledAt.compareTo(b.scheduledAt);
-    });
-    return items;
+    final scheduled = _scheduledTrips.toList()
+      ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
+    final invitations = _invitationTrips.toList()
+      ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
+
+    return switch (_activeFilter) {
+      'Agendado' => scheduled,
+      'Aguardando aprovação' => invitations,
+      _ => [...scheduled, ...invitations],
+    };
   }
 
   @override
@@ -105,7 +123,15 @@ class _SchedulesPageState extends State<SchedulesPage> {
                                     '/schedule-detail',
                                     extra: items[i],
                                   ),
-                                  child: _ScheduleCard(trip: items[i]),
+                                  child: _ScheduleCard(
+                                    trip: items[i],
+                                    isHighlighted: items[i].status ==
+                                            'scheduled' &&
+                                        _activeFilter == 'Todos',
+                                    onStartTrip: items[i].status == 'scheduled'
+                                        ? () => _startTrip(items[i])
+                                        : null,
+                                  ),
                                 ),
                               ),
                             ),
@@ -128,17 +154,11 @@ class _SchedulesPageState extends State<SchedulesPage> {
   }
 
   Widget _buildFilters() {
-    const filters = [
-      'Todos',
-      'Aguardando aprovação',
-      'Aguardando confirmação',
-      'Agendado',
-    ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
-        children: filters.map((f) {
+        children: _filters.map((f) {
           final isActive = f == _activeFilter;
           return Padding(
             padding: const EdgeInsets.only(right: 8),
@@ -172,11 +192,19 @@ class _SchedulesPageState extends State<SchedulesPage> {
 
 class _ScheduleCard extends StatelessWidget {
   final TripData trip;
-  const _ScheduleCard({required this.trip});
+  final bool isHighlighted;
+  final VoidCallback? onStartTrip;
+
+  const _ScheduleCard({
+    required this.trip,
+    this.isHighlighted = false,
+    this.onStartTrip,
+  });
 
   Color get _statusColor => switch (trip.status) {
         'awaiting_client_confirmation' => Colors.orange,
         'awaiting_driver_confirmation' => AppColors.secondary,
+        'searching_drivers' => AppColors.secondary,
         'scheduled' => const Color(0xFF2ECC71),
         _ => AppColors.textSecondary,
       };
@@ -189,72 +217,117 @@ class _ScheduleCard extends StatelessWidget {
     final timeStr =
         '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Stack(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  trip.clientName,
-                  style: const TextStyle(
-                    fontFamily: 'OutfitBlack',
-                    fontSize: 15,
-                    color: AppColors.textPrimary,
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        trip.clientName,
+                        style: const TextStyle(
+                          fontFamily: 'OutfitBlack',
+                          fontSize: 15,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _statusColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        trip.statusLabel,
+                        style: TextStyle(
+                          fontFamily: 'QuasimodoSemiBold',
+                          fontSize: 10,
+                          color: _statusColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _RouteLine(origin: trip.origin, destination: trip.destination),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Icon(Icons.calendar_today,
+                        size: 14, color: Colors.grey.shade400),
+                    const SizedBox(width: 6),
+                    Text(dateStr,
+                        style: const TextStyle(
+                            fontSize: 12, color: AppColors.textSecondary)),
+                    const SizedBox(width: 16),
+                    Icon(Icons.access_time,
+                        size: 14, color: Colors.grey.shade400),
+                    const SizedBox(width: 6),
+                    Text(timeStr,
+                        style: const TextStyle(
+                            fontSize: 12, color: AppColors.textSecondary)),
+                    const Spacer(),
+                    Text(
+                      'R\$ ${trip.price.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontFamily: 'OutfitBlack',
+                        fontSize: 14,
+                        color: Color(0xFF2ECC71),
+                      ),
+                    ),
+                  ],
+                ),
+                if (trip.status == 'scheduled') ...[
+                  const SizedBox(height: 12),
+                  const Divider(height: 1, color: Color(0xFFF0F0F0)),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 40,
+                    child: ElevatedButton(
+                      onPressed: onStartTrip,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2ECC71),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Iniciar viagem',
+                        style: TextStyle(
+                          fontFamily: 'OutfitBlack',
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _statusColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  trip.statusLabel,
-                  style: TextStyle(
-                    fontFamily: 'QuasimodoSemiBold',
-                    fontSize: 10,
-                    color: _statusColor,
-                  ),
-                ),
-              ),
-            ],
+                ],
+              ],
+            ),
           ),
-          const SizedBox(height: 10),
-          _RouteLine(origin: trip.origin, destination: trip.destination),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Icon(Icons.calendar_today, size: 14, color: Colors.grey.shade400),
-              const SizedBox(width: 6),
-              Text(dateStr,
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textSecondary)),
-              const SizedBox(width: 16),
-              Icon(Icons.access_time, size: 14, color: Colors.grey.shade400),
-              const SizedBox(width: 6),
-              Text(timeStr,
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textSecondary)),
-              const Spacer(),
-              Text(
-                'R\$ ${trip.price.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontFamily: 'OutfitBlack',
-                  fontSize: 14,
-                  color: Color(0xFF2ECC71),
-                ),
+          if (isHighlighted)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: Container(
+                width: 4,
+                color: const Color(0xFF2ECC71),
               ),
-            ],
-          ),
+            ),
         ],
       ),
     );

@@ -32,10 +32,10 @@ class _EarningsPageState extends State<EarningsPage> {
   }
 
   Future<void> _load() async {
-    final profileId = AuthState.providerProfileId ?? '';
+    final driverId = AuthState.driverProfileId ?? '';
     final userId = AuthState.userId ?? '';
     final results = await Future.wait([
-      _tripService.getDriverEarnings(profileId),
+      _tripService.getDriverEarnings(driverId),
       _driverService.getDriverProfile(userId),
     ]);
     if (mounted) {
@@ -90,6 +90,7 @@ class _EarningsPageState extends State<EarningsPage> {
                             onPeriodChanged: (p) =>
                                 setState(() => _selectedPeriod = p),
                             earning: _periodEarning(_earnings!),
+                            totalTrips: _earnings!.totalTrips,
                           ),
                           const SizedBox(height: 16),
                           EarningsChartCard(
@@ -228,11 +229,13 @@ class _PeriodEarningsCard extends StatelessWidget {
   final String selectedPeriod;
   final ValueChanged<String> onPeriodChanged;
   final PeriodEarning earning;
+  final int totalTrips;
 
   const _PeriodEarningsCard({
     required this.selectedPeriod,
     required this.onPeriodChanged,
     required this.earning,
+    required this.totalTrips,
   });
 
   static const _periods = ['Diário', 'Semanal', 'Mensal', 'Anual'];
@@ -292,7 +295,7 @@ class _PeriodEarningsCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '${earning.trips} corridas',
+            '$totalTrips corridas',
             style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
           ),
         ],

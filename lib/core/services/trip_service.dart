@@ -22,7 +22,7 @@ const _tripHistorySelect =
 class TripService {
   final SupabaseClient _client = Supabase.instance.client;
 
-  /// Convites pendentes para o motorista (trip_driver_candidates).
+  /// Convites pendentes para o motorista — tela home (ainda não respondidos).
   Future<List<TripData>> getDriverInvitations(String driverProfileId) async {
     try {
       final res = await _client
@@ -37,6 +37,28 @@ class TripService {
           .toList();
     } catch (e) {
       debugPrint('[TripService] getDriverInvitations erro: $e');
+      return [];
+    }
+  }
+
+  /// Candidaturas aceitas pelo motorista ainda aguardando aprovação — tela agendamentos.
+  Future<List<TripData>> getDriverAcceptedCandidacies(String driverProfileId) async {
+    try {
+      final res = await _client
+          .from('trip_driver_candidates')
+          .select('trip:trips!trip_id($_tripSelect)')
+          .eq('driver_profile_id', driverProfileId)
+          .eq('status', 'accepted');
+      return (res as List)
+          .map((c) => (c as Map)['trip'] as Map<String, dynamic>?)
+          .where((trip) => trip != null)
+          .map((trip) => TripData.fromMap(trip!))
+          .where((trip) =>
+              trip.status == 'searching_drivers' ||
+              trip.status == 'awaiting_client_confirmation')
+          .toList();
+    } catch (e) {
+      debugPrint('[TripService] getDriverAcceptedCandidacies erro: $e');
       return [];
     }
   }
@@ -83,13 +105,13 @@ class TripService {
     }
   }
 
-  /// Agendamentos do motorista (agendamentos tab).
-  Future<List<TripData>> getDriverScheduledTrips(String providerProfileId) async {
+  /// Todas as viagens atribuídas ao motorista (agendamentos).
+  Future<List<TripData>> getDriverScheduledTrips(String driverProfileId) async {
     try {
       final res = await _client
           .from('trips')
           .select(_tripSelect)
-          .eq('driver_profile_id', providerProfileId)
+          .eq('driver_profile_id', driverProfileId)
           .inFilter('status', [
             'awaiting_driver_confirmation',
             'awaiting_client_confirmation',
@@ -100,6 +122,20 @@ class TripService {
     } catch (e) {
       debugPrint('[TripService] getDriverScheduledTrips erro: $e');
       return [];
+    }
+  }
+
+  /// Inicia uma corrida agendada (scheduled → started).
+  Future<bool> startTrip(String tripId) async {
+    try {
+      await _client
+          .from('trips')
+          .update({'status': 'started'})
+          .eq('id', tripId);
+      return true;
+    } catch (e) {
+      debugPrint('[TripService] startTrip erro: $e');
+      return false;
     }
   }
 
@@ -178,14 +214,13 @@ class TripService {
     }
   }
 
-  /// Ganhos do motorista: agrega corridas finalizadas por período.
-  Future<EarningsData> getDriverEarnings(String providerProfileId) async {
+  /// Ganhos do motorista: busca todas as corridas atribuídas e agrega por is_paid.
+  Future<EarningsData> getDriverEarnings(String driverProfileId) async {
     try {
       final res = await _client
           .from('trips')
-          .select('id, estimated_price, final_price, scheduled_datetime, finished_at, payment_method')
-          .eq('driver_profile_id', providerProfileId)
-          .eq('status', 'finished')
+          .select('id, estimated_price, final_price, scheduled_datetime, finished_at, payment_method, is_paid, status, payment_date')
+          .eq('driver_profile_id', driverProfileId)
           .order('finished_at', ascending: false);
 
       final trips = (res as List).cast<Map<String, dynamic>>();
@@ -245,6 +280,7 @@ class EarningsData {
   final PeriodEarning yearlyEarning;
   final List<MonthlyEarning> monthlyHistory;
   final List<EarningEntry> recentEntries;
+  final int totalTrips;
 
   const EarningsData({
     required this.availableBalance,
@@ -256,6 +292,7 @@ class EarningsData {
     required this.yearlyEarning,
     required this.monthlyHistory,
     required this.recentEntries,
+    required this.totalTrips,
   });
 
   EarningEntry get lastTransaction => recentEntries.isNotEmpty
@@ -278,6 +315,7 @@ class EarningsData {
         yearlyEarning: PeriodEarning(total: 0, trips: 0),
         monthlyHistory: [],
         recentEntries: [],
+        totalTrips: 0,
       );
 
   factory EarningsData.fromTrips(List<Map<String, dynamic>> trips) {
@@ -288,65 +326,64 @@ class EarningsData {
     final prevMonthStart = DateTime(now.year, now.month - 1, 1);
     final yearStart = DateTime(now.year, 1, 1);
 
+    // Trips já recebidos pelo motorista (is_paid = true) → período e comparativo
+    final paidTrips = trips.where((t) => t['is_paid'] == true).toList();
+
+    // Corridas finalizadas ainda não pagas → saldo disponível para saque
+    final unpaidFinished = trips
+        .where((t) => t['is_paid'] != true && t['status'] == 'finished')
+        .toList();
+
+    double availableBalance = 0;
+    for (final t in unpaidFinished) {
+      availableBalance +=
+          ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
+    }
+
     double daily = 0, weekly = 0, monthly = 0, prevMonthly = 0, yearly = 0;
     int dailyCount = 0, weeklyCount = 0, monthlyCount = 0, yearlyCount = 0;
-    double totalBalance = 0;
 
     final monthMap = <String, MonthlyEarning>{};
 
-    for (final t in trips) {
-      final price = ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
-      final finishedAtStr = t['finished_at'] as String?;
-      if (finishedAtStr == null) continue;
-      final finished = DateTime.parse(finishedAtStr);
+    for (final t in paidTrips) {
+      final price =
+          ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
+      // Usa payment_date se disponível, senão finished_at
+      final dateStr =
+          (t['payment_date'] ?? t['finished_at']) as String?;
+      if (dateStr == null) continue;
+      final date = DateTime.parse(dateStr);
 
-      totalBalance += price;
-
-      if (!finished.isBefore(yearStart)) {
-        yearly += price;
-        yearlyCount++;
-      }
-      if (!finished.isBefore(monthStart)) {
-        monthly += price;
-        monthlyCount++;
-      }
-      if (!finished.isBefore(prevMonthStart) && finished.isBefore(monthStart)) {
+      if (!date.isBefore(yearStart)) { yearly += price; yearlyCount++; }
+      if (!date.isBefore(monthStart)) { monthly += price; monthlyCount++; }
+      if (!date.isBefore(prevMonthStart) && date.isBefore(monthStart)) {
         prevMonthly += price;
       }
-      if (!finished.isBefore(weekStart)) {
-        weekly += price;
-        weeklyCount++;
-      }
-      if (!finished.isBefore(todayStart)) {
-        daily += price;
-        dailyCount++;
-      }
+      if (!date.isBefore(weekStart)) { weekly += price; weeklyCount++; }
+      if (!date.isBefore(todayStart)) { daily += price; dailyCount++; }
 
-      final key = '${finished.year}-${finished.month.toString().padLeft(2, '0')}';
+      final key = '${date.year}-${date.month.toString().padLeft(2, '0')}';
       final existing = monthMap[key];
       monthMap[key] = MonthlyEarning(
-        month: finished.month,
-        year: finished.year,
+        month: date.month,
+        year: date.year,
         total: (existing?.total ?? 0) + price,
         trips: (existing?.trips ?? 0) + 1,
       );
     }
 
     final history = monthMap.values.toList()
-      ..sort((a, b) {
-        final da = DateTime(a.year, a.month);
-        final db = DateTime(b.year, b.month);
-        return da.compareTo(db);
-      });
+      ..sort((a, b) =>
+          DateTime(a.year, a.month).compareTo(DateTime(b.year, b.month)));
 
-    // Last 10 trips as entries
-    final entries = trips.take(10).map((t) {
+    // Extrato: últimas 10 corridas pagas
+    final entries = paidTrips.take(10).map((t) {
       final price =
           ((t['final_price'] ?? t['estimated_price']) as num?)?.toDouble() ?? 0;
-      final finishedAtStr = t['finished_at'] as String? ?? '';
-      final date = finishedAtStr.isNotEmpty
-          ? DateTime.parse(finishedAtStr)
-          : DateTime.now();
+      final dateStr =
+          (t['payment_date'] ?? t['finished_at'] ?? '') as String;
+      final date =
+          dateStr.isNotEmpty ? DateTime.parse(dateStr) : DateTime.now();
       return EarningEntry(
         id: t['id'] as String? ?? '',
         description: 'Corrida',
@@ -357,7 +394,7 @@ class EarningsData {
     }).toList();
 
     return EarningsData(
-      availableBalance: totalBalance,
+      availableBalance: availableBalance,
       currentMonthTotal: monthly,
       previousMonthTotal: prevMonthly,
       dailyEarning: PeriodEarning(total: daily, trips: dailyCount),
@@ -366,6 +403,7 @@ class EarningsData {
       yearlyEarning: PeriodEarning(total: yearly, trips: yearlyCount),
       monthlyHistory: history,
       recentEntries: entries,
+      totalTrips: trips.length,
     );
   }
 }

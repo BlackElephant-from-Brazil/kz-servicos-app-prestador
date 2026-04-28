@@ -30,7 +30,11 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
 
   TripData get _trip => widget.trip;
 
-  bool get _canRespond => _trip.canDriverRespond;
+  // Na home: motorista pode responder a qualquer convite pendente.
+  // Em agendamentos: só confirma se foi diretamente atribuído e aguarda confirmação.
+  bool get _canRespond => widget.fromHome
+      ? _trip.canDriverRespond
+      : _trip.status == 'awaiting_driver_confirmation';
 
   String get _pageTitle =>
       widget.fromHome ? 'Detalhes da corrida' : 'Detalhes do agendamento';
@@ -376,8 +380,72 @@ class _ScheduleDetailPageState extends State<ScheduleDetailPage> {
               ),
             ),
           ),
+          if (_trip.status == 'scheduled') _buildStartBar(),
           if (_canRespond) _buildActionBar(),
         ],
+      ),
+    );
+  }
+
+  Future<void> _startTrip() async {
+    setState(() => _isLoading = true);
+    final ok = await _tripService.startTrip(_trip.id);
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Viagem iniciada!' : 'Erro ao iniciar viagem'),
+        backgroundColor: ok ? const Color(0xFF2ECC71) : Colors.red.shade400,
+      ),
+    );
+    if (ok) context.pop();
+  }
+
+  Widget _buildStartBar() {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        16,
+        24,
+        MediaQuery.of(context).padding.bottom + 16,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        height: 52,
+        child: ElevatedButton(
+          onPressed: _isLoading ? null : _startTrip,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF2ECC71),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            elevation: 0,
+          ),
+          child: _isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text(
+                  'Iniciar corrida',
+                  style: TextStyle(fontFamily: 'OutfitBlack', fontSize: 15),
+                ),
+        ),
       ),
     );
   }
