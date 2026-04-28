@@ -214,12 +214,12 @@ class TripService {
     }
   }
 
-  /// Ganhos do motorista: busca todas as corridas atribuídas e agrega por is_driver_paid.
+  /// Ganhos do motorista: busca todas as corridas atribuídas e agrega por is_driver_paied.
   Future<EarningsData> getDriverEarnings(String driverProfileId) async {
     try {
       final res = await _client
           .from('trips')
-          .select('id, estimated_price, final_price, scheduled_datetime, finished_at, payment_method, is_driver_paid, status, payment_date')
+          .select('id, estimated_price, final_price, scheduled_datetime, finished_at, payment_method, is_driver_paied, status, payment_date')
           .eq('driver_profile_id', driverProfileId)
           .order('scheduled_datetime', ascending: false);
 
@@ -331,10 +331,10 @@ class EarningsData {
     final prevMonthStart = DateTime(now.year, now.month - 1, 1);
     final yearStart = DateTime(now.year, 1, 1);
 
-    final paidTrips = trips.where((t) => t['is_driver_paid'] == true).toList();
-    final unpaidTrips = trips.where((t) => t['is_driver_paid'] != true).toList();
+    final paidTrips = trips.where((t) => t['is_driver_paied'] == true).toList();
+    final unpaidTrips = trips.where((t) => t['is_driver_paied'] != true).toList();
 
-    // Valor a receber: TODAS as corridas onde is_driver_paid = false
+    // Valor a receber: TODAS as corridas onde is_driver_paied = false
     double availableBalance = 0;
     for (final t in unpaidTrips) {
       availableBalance +=
@@ -409,7 +409,7 @@ class EarningsData {
         amount: price,
         date: date,
         type: EarningType.trip,
-        isPaid: t['is_driver_paid'] == true,
+        isPaid: t['is_driver_paied'] == true,
       );
     }).toList();
 

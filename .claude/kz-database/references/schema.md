@@ -180,7 +180,7 @@ Tabela principal de viagens (transporte de passageiros).
 | `estimated_price` | DECIMAL(10,2) | |
 | `final_price` | DECIMAL(10,2) | |
 | `is_paid` | BOOLEAN | DEFAULT false — cliente pagou a corrida |
-| `is_driver_paid` | BOOLEAN | DEFAULT false — motorista recebeu o repasse |
+| `is_driver_paied` | BOOLEAN | DEFAULT false — motorista recebeu o repasse (nome com typo no banco) |
 | `payment_method` | payment_method | |
 | `payment_date` | TIMESTAMPTZ | |
 | `started_at` | TIMESTAMPTZ | |
