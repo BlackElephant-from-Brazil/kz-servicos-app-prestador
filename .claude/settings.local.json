@@ -12,7 +12,9 @@
       "Bash(mkdir -p C:/Users/guilh/OneDrive/Documents/BlackElephant/Clientes/KZ/kz-servicos-app-prestador/.claude/kz-database/references)",
       "Bash(cp C:/Users/guilh/OneDrive/Documents/BlackElephant/Clientes/KZ/kz-servicos-app-prestador/.github/skills/kz-database/SKILL.md C:/Users/guilh/OneDrive/Documents/BlackElephant/Clientes/KZ/kz-servicos-app-prestador/.claude/kz-database/SKILL.md)",
       "Bash(cp 'C:/Users/guilh/OneDrive/Documents/BlackElephant/Clientes/KZ/kz-servicos-app-prestador/.github/skills/kz-database/references/*' C:/Users/guilh/OneDrive/Documents/BlackElephant/Clientes/KZ/kz-servicos-app-prestador/.claude/kz-database/references/)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git fetch *)",
+      "Bash(git status *)"
     ]
   }
 }
