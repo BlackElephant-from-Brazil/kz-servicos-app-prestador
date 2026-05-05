@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:kz_servicos_prestador/core/models/trip_data.dart';
 import 'package:kz_servicos_prestador/core/services/auth_state.dart';
 import 'package:kz_servicos_prestador/features/auth/presentation/pages/login_page.dart';
+import 'package:kz_servicos_prestador/core/services/trip_chat_service.dart';
 import 'package:kz_servicos_prestador/features/chat/presentation/pages/chat_page.dart';
 import 'package:kz_servicos_prestador/features/chat/presentation/pages/messages_page.dart';
 import 'package:kz_servicos_prestador/features/earnings/presentation/pages/earnings_page.dart';
@@ -90,10 +91,10 @@ class AppRouter {
         builder: (context, state) => const MessagesPage(),
       ),
       GoRoute(
-        path: '/chat/:conversationId',
+        path: '/chat/:roomId',
         builder: (context, state) {
-          final id = state.pathParameters['conversationId'] ?? '0';
-          return ChatPage(conversationId: id);
+          final args = state.extra as ChatPageArgs;
+          return ChatPage(args: args);
         },
       ),
       GoRoute(
