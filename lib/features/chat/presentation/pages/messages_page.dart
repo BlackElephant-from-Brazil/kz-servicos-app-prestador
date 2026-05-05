@@ -66,33 +66,34 @@ class _MessagesPageState extends State<MessagesPage>
 
   Future<void> _openChat(ChatEntryData entry) async {
     if (_openingChat) return;
-    final userId = AuthState.userId ?? '';
+    setState(() => _openingChat = true);
 
-    String roomId;
-    if (entry.roomId != null) {
-      roomId = entry.roomId!;
-    } else {
-      setState(() => _openingChat = true);
-      try {
-        final created = await _chatService.getOrCreateChatRoom(
+    try {
+      final userId = AuthState.userId ?? '';
+      String? roomId;
+
+      if (entry.roomId != null) {
+        roomId = entry.roomId!;
+      } else {
+        roomId = await _chatService.getOrCreateChatRoom(
           tripId: entry.isTrip ? entry.referenceId : null,
           serviceRequestId: entry.isTrip ? null : entry.referenceId,
           clientId: entry.clientId,
           providerId: userId,
         );
-        if (created == null) {
-          if (mounted) setState(() => _openingChat = false);
-          return;
-        }
-        roomId = created;
-      } catch (e) {
-        if (mounted) setState(() => _openingChat = false);
+      }
+
+      if (!mounted) return;
+
+      if (roomId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível abrir o chat. Tente novamente.'),
+          ),
+        );
         return;
       }
-      if (mounted) setState(() => _openingChat = false);
-    }
 
-    if (mounted) {
       context.push(
         '/chat/$roomId',
         extra: ChatPageArgs(
@@ -105,6 +106,8 @@ class _MessagesPageState extends State<MessagesPage>
           serviceRequestId: entry.isTrip ? null : entry.referenceId,
         ),
       );
+    } finally {
+      if (mounted) setState(() => _openingChat = false);
     }
   }
 
