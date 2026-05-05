@@ -213,11 +213,7 @@ class _ConversationTile extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: hasUnread && pulseAlpha != null
-              ? Color.lerp(
-                  Colors.white,
-                  AppColors.secondary.withValues(alpha: pulseAlpha!),
-                  1.0,
-                )
+              ? Color.lerp(Colors.white, AppColors.secondary, pulseAlpha!)
               : Colors.white,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [

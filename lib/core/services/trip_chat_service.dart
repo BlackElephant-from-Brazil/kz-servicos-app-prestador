@@ -90,7 +90,7 @@ class TripChatService {
   static const _serviceRequestSelect =
       '*, '
       'service_categories(name), '
-      'address:addresses(formatted_address), '
+      'address:addresses!address_id(formatted_address), '
       'client:users!client_id(id, full_name), '
       'chat_rooms!service_request_id(id, chat_messages(id, message, created_at, sender_id, is_read))';
 
