@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
 import 'package:kz_servicos_prestador/core/services/auth_state.dart';
-import 'package:kz_servicos_prestador/core/services/chat_service.dart';
+import 'package:kz_servicos_prestador/core/services/trip_chat_service.dart';
 
 class MessagesPage extends StatefulWidget {
   const MessagesPage({super.key});
@@ -13,9 +13,10 @@ class MessagesPage extends StatefulWidget {
 
 class _MessagesPageState extends State<MessagesPage>
     with SingleTickerProviderStateMixin {
-  final _chatService = ChatService();
-  List<ChatRoomData> _rooms = [];
+  final _chatService = TripChatService();
+  List<ChatEntryData> _entries = [];
   bool _loading = true;
+  bool _openingChat = false;
 
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
@@ -41,13 +42,69 @@ class _MessagesPageState extends State<MessagesPage>
   }
 
   Future<void> _load() async {
+    setState(() => _loading = true);
     final userId = AuthState.userId ?? '';
-    final rooms = await _chatService.getChatRooms(userId);
+    final driverProfileId = AuthState.driverProfileId;
+    final providerProfileId = AuthState.providerProfileId;
+
+    List<ChatEntryData> entries;
+    if (AuthState.isDriver && driverProfileId != null) {
+      entries = await _chatService.getChatsForDriver(driverProfileId, userId);
+    } else if (providerProfileId != null) {
+      entries = await _chatService.getChatsForServiceProvider(providerProfileId, userId);
+    } else {
+      entries = [];
+    }
+
     if (mounted) {
       setState(() {
-        _rooms = rooms;
+        _entries = entries;
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _openChat(ChatEntryData entry) async {
+    if (_openingChat) return;
+    final userId = AuthState.userId ?? '';
+
+    String roomId;
+    if (entry.roomId != null) {
+      roomId = entry.roomId!;
+    } else {
+      setState(() => _openingChat = true);
+      try {
+        final created = await _chatService.getOrCreateChatRoom(
+          tripId: entry.isTrip ? entry.referenceId : null,
+          serviceRequestId: entry.isTrip ? null : entry.referenceId,
+          clientId: entry.clientId,
+          providerId: userId,
+        );
+        if (created == null) {
+          if (mounted) setState(() => _openingChat = false);
+          return;
+        }
+        roomId = created;
+      } catch (e) {
+        if (mounted) setState(() => _openingChat = false);
+        return;
+      }
+      if (mounted) setState(() => _openingChat = false);
+    }
+
+    if (mounted) {
+      context.push(
+        '/chat/$roomId',
+        extra: ChatPageArgs(
+          roomId: roomId,
+          title: entry.title,
+          subtitle: entry.subtitle,
+          clientName: entry.clientName,
+          clientId: entry.clientId,
+          tripId: entry.isTrip ? entry.referenceId : null,
+          serviceRequestId: entry.isTrip ? null : entry.referenceId,
+        ),
+      );
     }
   }
 
@@ -73,66 +130,58 @@ class _MessagesPageState extends State<MessagesPage>
       ),
       body: Stack(
         children: [
-          _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _rooms.isEmpty
-                  ? const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.chat_bubble_outline,
-                              size: 64, color: AppColors.textSecondary),
-                          SizedBox(height: 16),
-                          Text(
-                            'Nenhuma mensagem',
-                            style: TextStyle(
-                              fontFamily: 'QuasimodoSemiBold',
-                              fontSize: 16,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-                        itemCount: _rooms.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (_, i) {
-                          final room = _rooms[i];
-                          final hasUnread = room.unreadCount > 0;
-                          if (hasUnread) {
-                            return AnimatedBuilder(
-                              animation: _pulseAnimation,
-                              builder: (context, child) {
-                                return _ConversationTile(
-                                  room: room,
-                                  onTap: () =>
-                                      context.push('/chat/${room.id}'),
-                                  pulseAlpha: _pulseAnimation.value,
-                                );
-                              },
-                            );
-                          }
-                          return _ConversationTile(
-                            room: room,
-                            onTap: () => context.push('/chat/${room.id}'),
-                          );
-                        },
-                      ),
+          if (_loading)
+            const Center(child: CircularProgressIndicator())
+          else if (_entries.isEmpty)
+            const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.chat_bubble_outline,
+                      size: 64, color: AppColors.textSecondary),
+                  SizedBox(height: 16),
+                  Text(
+                    'Nenhuma mensagem',
+                    style: TextStyle(
+                      fontFamily: 'QuasimodoSemiBold',
+                      fontSize: 16,
+                      color: AppColors.textSecondary,
                     ),
-          Positioned(
-            bottom: MediaQuery.of(context).padding.bottom + 16,
-            right: 16,
-            child: FloatingActionButton(
-              heroTag: 'newChat',
-              backgroundColor: AppColors.secondary,
-              onPressed: () => context.push('/chat/new'),
-              child: const Icon(Icons.add, color: Colors.white),
+                  ),
+                ],
+              ),
+            )
+          else
+            RefreshIndicator(
+              onRefresh: _load,
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                itemCount: _entries.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 8),
+                itemBuilder: (_, i) {
+                  final entry = _entries[i];
+                  if (entry.unreadCount > 0) {
+                    return AnimatedBuilder(
+                      animation: _pulseAnimation,
+                      builder: (context, _) => _ConversationTile(
+                        entry: entry,
+                        onTap: () => _openChat(entry),
+                        pulseAlpha: _pulseAnimation.value,
+                      ),
+                    );
+                  }
+                  return _ConversationTile(
+                    entry: entry,
+                    onTap: () => _openChat(entry),
+                  );
+                },
+              ),
             ),
-          ),
+          if (_openingChat)
+            const ColoredBox(
+              color: Color(0x44000000),
+              child: Center(child: CircularProgressIndicator()),
+            ),
         ],
       ),
     );
@@ -140,19 +189,19 @@ class _MessagesPageState extends State<MessagesPage>
 }
 
 class _ConversationTile extends StatelessWidget {
-  final ChatRoomData room;
+  final ChatEntryData entry;
   final VoidCallback onTap;
   final double? pulseAlpha;
 
   const _ConversationTile({
-    required this.room,
+    required this.entry,
     required this.onTap,
     this.pulseAlpha,
   });
 
   @override
   Widget build(BuildContext context) {
-    final unread = room.unreadCount;
+    final unread = entry.unreadCount;
     final hasUnread = unread > 0;
 
     return GestureDetector(
@@ -182,7 +231,7 @@ class _ConversationTile extends StatelessWidget {
               radius: 24,
               backgroundColor: AppColors.secondary.withValues(alpha: 0.1),
               child: Text(
-                room.clientName.isNotEmpty ? room.clientName[0] : '?',
+                entry.clientName.isNotEmpty ? entry.clientName[0] : '?',
                 style: const TextStyle(
                   fontFamily: 'OutfitBlack',
                   fontSize: 18,
@@ -196,7 +245,7 @@ class _ConversationTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    room.clientName,
+                    entry.clientName,
                     style: const TextStyle(
                       fontFamily: 'OutfitBlack',
                       fontSize: 15,
@@ -204,18 +253,18 @@ class _ConversationTile extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 2),
-                  if (room.origin.isNotEmpty || room.destination.isNotEmpty)
+                  if (entry.subtitle.isNotEmpty)
                     Text(
-                      '${room.origin} → ${room.destination}',
+                      entry.subtitle,
                       style: const TextStyle(
                           fontSize: 12, color: AppColors.textSecondary),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                  if (room.lastMessage != null) ...[
+                  if (entry.lastMessage != null) ...[
                     const SizedBox(height: 4),
                     Text(
-                      room.lastMessage!,
+                      entry.lastMessage!,
                       style: TextStyle(
                         fontFamily: 'QuasimodoSemiBold',
                         fontSize: 13,
