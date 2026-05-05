@@ -1,21 +1,26 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
-import 'package:kz_servicos_prestador/features/chat/data/models/mock_message.dart';
+import 'package:kz_servicos_prestador/core/services/auth_state.dart';
+import 'package:kz_servicos_prestador/core/services/trip_chat_service.dart';
 
 class ChatPage extends StatefulWidget {
-  final String conversationId;
+  final ChatPageArgs args;
 
-  const ChatPage({super.key, required this.conversationId});
+  const ChatPage({super.key, required this.args});
 
   @override
   State<ChatPage> createState() => _ChatPageState();
 }
 
 class _ChatPageState extends State<ChatPage> {
+  final _chatService = TripChatService();
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
-  late List<MockChatMessage> _messages;
+  List<ChatMessageData> _messages = [];
+  bool _sending = false;
+  StreamSubscription<List<ChatMessageData>>? _subscription;
 
   static const _presets = [
     'Estou a caminho',
@@ -28,35 +33,47 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
-    if (widget.conversationId == 'new') {
-      _messages = [];
-    } else {
-      final conversations = MockConversation.samples;
-      final idx = int.tryParse(widget.conversationId) ?? 0;
-      _messages =
-          idx < conversations.length ? List.of(conversations[idx].messages) : [];
-    }
+    _subscribeToMessages();
+    _markRead();
   }
 
   @override
   void dispose() {
+    _subscription?.cancel();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _sendMessage(String text) {
-    if (text.trim().isEmpty) return;
-    setState(() {
-      _messages.add(MockChatMessage(
-        id: 'sent_${DateTime.now().millisecondsSinceEpoch}',
-        text: text.trim(),
-        isFromProvider: true,
-        sentAt: DateTime.now(),
-      ));
+  void _subscribeToMessages() {
+    _subscription = _chatService
+        .subscribeToMessages(widget.args.roomId)
+        .listen((messages) {
+      if (mounted) {
+        setState(() => _messages = messages);
+        _scrollToBottom();
+        _markRead();
+      }
     });
+  }
+
+  Future<void> _markRead() async {
+    final userId = AuthState.userId;
+    if (userId != null) {
+      await _chatService.markMessagesRead(widget.args.roomId, userId);
+    }
+  }
+
+  Future<void> _sendMessage(String text) async {
+    if (text.trim().isEmpty || _sending) return;
+    final userId = AuthState.userId ?? '';
+    setState(() => _sending = true);
     _controller.clear();
-    _scrollToBottom();
+    try {
+      await _chatService.sendMessage(widget.args.roomId, userId, text.trim());
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   void _scrollToBottom() {
@@ -73,6 +90,7 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    final currentUserId = AuthState.userId ?? '';
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -82,33 +100,47 @@ class _ChatPageState extends State<ChatPage> {
           icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
           onPressed: () => context.pop(),
         ),
-        title: const Row(
+        title: Row(
           children: [
             CircleAvatar(
               radius: 16,
-              backgroundColor: AppColors.secondary,
-              child: Icon(Icons.support_agent, color: Colors.white, size: 18),
+              backgroundColor: AppColors.secondary.withValues(alpha: 0.15),
+              child: Text(
+                widget.args.clientName.isNotEmpty
+                    ? widget.args.clientName[0]
+                    : '?',
+                style: const TextStyle(
+                  fontFamily: 'OutfitBlack',
+                  fontSize: 14,
+                  color: AppColors.secondary,
+                ),
+              ),
             ),
-            SizedBox(width: 10),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'KZ Serviços',
-                    style: TextStyle(
+                    widget.args.title,
+                    style: const TextStyle(
                       fontFamily: 'OutfitBlack',
-                      fontSize: 16,
+                      fontSize: 15,
                       color: AppColors.textPrimary,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  Text(
-                    'Central de atendimento',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
+                  if (widget.args.subtitle.isNotEmpty)
+                    Text(
+                      widget.args.subtitle,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
                 ],
               ),
             ),
@@ -117,55 +149,50 @@ class _ChatPageState extends State<ChatPage> {
       ),
       body: Column(
         children: [
-          // Messages
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               itemCount: _messages.length,
               itemBuilder: (_, i) {
                 final msg = _messages[i];
-                return _MessageBubble(message: msg);
+                return _MessageBubble(
+                  message: msg,
+                  isFromMe: msg.senderId == currentUserId,
+                );
               },
             ),
           ),
-
-          // Preset messages
           SizedBox(
             height: 40,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: _presets.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 8),
-              itemBuilder: (_, i) {
-                return GestureDetector(
-                  onTap: () => _sendMessage(_presets[i]),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: AppColors.secondary.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: Text(
-                      _presets[i],
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.secondary,
-                      ),
+              separatorBuilder: (context2, index2) => const SizedBox(width: 8),
+              itemBuilder: (_, i) => GestureDetector(
+                onTap: () => _sendMessage(_presets[i]),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: AppColors.secondary.withValues(alpha: 0.3),
                     ),
                   ),
-                );
-              },
+                  child: Text(
+                    _presets[i],
+                    style: const TextStyle(
+                        fontSize: 13, color: AppColors.secondary),
+                  ),
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 8),
-
-          // Input
           Container(
             padding: EdgeInsets.fromLTRB(
               16,
@@ -218,11 +245,16 @@ class _ChatPageState extends State<ChatPage> {
                       color: AppColors.secondary,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
-                      Icons.send_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
+                    child: _sending
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.send_rounded,
+                            color: Colors.white, size: 20),
                   ),
                 ),
               ],
@@ -235,25 +267,25 @@ class _ChatPageState extends State<ChatPage> {
 }
 
 class _MessageBubble extends StatelessWidget {
-  final MockChatMessage message;
+  final ChatMessageData message;
+  final bool isFromMe;
 
-  const _MessageBubble({required this.message});
+  const _MessageBubble({required this.message, required this.isFromMe});
 
   @override
   Widget build(BuildContext context) {
-    final isMe = message.isFromProvider;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         mainAxisAlignment:
-            isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+            isFromMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (!isMe) ...[
+          if (!isFromMe) ...[
             const CircleAvatar(
               radius: 14,
               backgroundColor: AppColors.secondary,
-              child: Icon(Icons.support_agent, color: Colors.white, size: 14),
+              child: Icon(Icons.person, color: Colors.white, size: 14),
             ),
             const SizedBox(width: 8),
           ],
@@ -261,14 +293,15 @@ class _MessageBubble extends StatelessWidget {
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.7,
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: isMe ? AppColors.secondary : Colors.white,
+              color: isFromMe ? AppColors.secondary : Colors.white,
               borderRadius: BorderRadius.only(
                 topLeft: const Radius.circular(16),
                 topRight: const Radius.circular(16),
-                bottomLeft: Radius.circular(isMe ? 16 : 4),
-                bottomRight: Radius.circular(isMe ? 4 : 16),
+                bottomLeft: Radius.circular(isFromMe ? 16 : 4),
+                bottomRight: Radius.circular(isFromMe ? 4 : 16),
               ),
               boxShadow: [
                 BoxShadow(
@@ -282,10 +315,10 @@ class _MessageBubble extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  message.text,
+                  message.message,
                   style: TextStyle(
                     fontSize: 14,
-                    color: isMe ? Colors.white : AppColors.textPrimary,
+                    color: isFromMe ? Colors.white : AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -293,7 +326,7 @@ class _MessageBubble extends StatelessWidget {
                   '${message.sentAt.hour.toString().padLeft(2, '0')}:${message.sentAt.minute.toString().padLeft(2, '0')}',
                   style: TextStyle(
                     fontSize: 10,
-                    color: isMe
+                    color: isFromMe
                         ? Colors.white.withValues(alpha: 0.7)
                         : AppColors.textSecondary,
                   ),
