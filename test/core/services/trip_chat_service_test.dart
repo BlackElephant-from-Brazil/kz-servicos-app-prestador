@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/foundation.dart';
 import 'package:kz_servicos_prestador/core/services/trip_chat_service.dart';
 
 void main() {

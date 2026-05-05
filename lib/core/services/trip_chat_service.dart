@@ -134,41 +134,46 @@ class TripChatService {
     }
   }
 
-  Future<String> getOrCreateChatRoom({
+  Future<String?> getOrCreateChatRoom({
     String? tripId,
     String? serviceRequestId,
     required String clientId,
     required String providerId,
   }) async {
-    assert(tripId != null || serviceRequestId != null,
-        'tripId ou serviceRequestId obrigatório');
-
-    var query = _client
-        .from('chat_rooms')
-        .select('id')
-        .eq('provider_id', providerId);
-    if (tripId != null) {
-      query = query.eq('trip_id', tripId);
-    } else {
-      query = query.eq('service_request_id', serviceRequestId!);
+    if (tripId == null && serviceRequestId == null) {
+      throw ArgumentError('tripId ou serviceRequestId obrigatório');
     }
+    try {
+      var query = _client
+          .from('chat_rooms')
+          .select('id')
+          .eq('provider_id', providerId);
+      if (tripId != null) {
+        query = query.eq('trip_id', tripId);
+      } else {
+        query = query.eq('service_request_id', serviceRequestId!);
+      }
 
-    final existing = await query.maybeSingle();
-    if (existing != null) return existing['id'] as String;
+      final existing = await query.maybeSingle();
+      if (existing != null) return existing['id'] as String;
 
-    final insert = <String, dynamic>{
-      'client_id': clientId,
-      'provider_id': providerId,
-    };
-    if (tripId != null) insert['trip_id'] = tripId;
-    if (serviceRequestId != null) insert['service_request_id'] = serviceRequestId;
+      final insert = <String, dynamic>{
+        'client_id': clientId,
+        'provider_id': providerId,
+      };
+      if (tripId != null) insert['trip_id'] = tripId;
+      if (serviceRequestId != null) insert['service_request_id'] = serviceRequestId;
 
-    final res = await _client
-        .from('chat_rooms')
-        .insert(insert)
-        .select('id')
-        .single();
-    return res['id'] as String;
+      final res = await _client
+          .from('chat_rooms')
+          .insert(insert)
+          .select('id')
+          .single();
+      return res['id'] as String;
+    } catch (e) {
+      debugPrint('[TripChatService] getOrCreateChatRoom erro: $e');
+      return null;
+    }
   }
 
   Future<void> sendMessage(
