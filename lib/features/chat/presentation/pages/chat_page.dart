@@ -50,9 +50,13 @@ class _ChatPageState extends State<ChatPage> {
         .subscribeToMessages(widget.args.roomId)
         .listen((messages) {
       if (mounted) {
+        final currentUserId = AuthState.userId ?? '';
+        final hasNewUnread = messages.any(
+          (m) => m.senderId != currentUserId && !m.isRead,
+        );
         setState(() => _messages = messages);
         _scrollToBottom();
-        _markRead();
+        if (hasNewUnread) _markRead();
       }
     });
   }
@@ -67,10 +71,11 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty || _sending) return;
     final userId = AuthState.userId ?? '';
+    final trimmed = text.trim();
     setState(() => _sending = true);
-    _controller.clear();
     try {
-      await _chatService.sendMessage(widget.args.roomId, userId, text.trim());
+      await _chatService.sendMessage(widget.args.roomId, userId, trimmed);
+      if (mounted) _controller.clear();
     } finally {
       if (mounted) setState(() => _sending = false);
     }
