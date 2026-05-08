@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
+import 'package:kz_servicos_prestador/core/models/provider_profile_data.dart';
+import 'package:kz_servicos_prestador/core/services/auth_state.dart';
+import 'package:kz_servicos_prestador/core/services/provider_service.dart';
+import 'package:kz_servicos_prestador/core/services/trip_service.dart';
 import 'package:kz_servicos_prestador/core/widgets/service_provider_bottom_nav.dart';
-import 'package:kz_servicos_prestador/core/services/trip_service.dart' show MonthlyEarning;
-import 'package:kz_servicos_prestador/features/earnings/data/models/mock_earnings.dart';
 import 'package:kz_servicos_prestador/features/earnings/presentation/widgets/earnings_chart_card.dart';
-import 'package:kz_servicos_prestador/features/profile/data/models/mock_provider.dart';
 
 class ProviderEarningsPage extends StatefulWidget {
   final ValueChanged<int> onNavTap;
@@ -12,79 +13,90 @@ class ProviderEarningsPage extends StatefulWidget {
   const ProviderEarningsPage({super.key, required this.onNavTap});
 
   @override
-  State<ProviderEarningsPage> createState() =>
-      _ProviderEarningsPageState();
+  State<ProviderEarningsPage> createState() => _ProviderEarningsPageState();
 }
 
 class _ProviderEarningsPageState extends State<ProviderEarningsPage> {
-  String _selectedPeriod = 'Diário';
+  final _providerService = ProviderService();
 
-  MockPeriodEarning _periodEarning(MockEarnings e) =>
-      switch (_selectedPeriod) {
-        'Semanal' => e.weeklyEarning,
-        'Mensal' => e.monthlyEarning,
-        'Anual' => e.yearlyEarning,
-        _ => e.dailyEarning,
-      };
+  EarningsData? _earnings;
+  ProviderProfileData? _profile;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final providerId = AuthState.providerProfileId ?? '';
+    final userId = AuthState.userId ?? '';
+    final results = await Future.wait([
+      _providerService.getProviderEarnings(providerId),
+      _providerService.getProviderProfile(userId),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _earnings = results[0] as EarningsData;
+      _profile = results[1] as ProviderProfileData?;
+      _loading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final earnings = MockEarnings.sample;
-    final provider = MockProvider.providerSample;
-    final bottomPad = MediaQuery.of(context).padding.bottom;
-    final period = _periodEarning(earnings);
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
           SafeArea(
-            child: SingleChildScrollView(
-              padding:
-                  EdgeInsets.fromLTRB(24, 24, 24, bottomPad + 100),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Carteira',
-                    style: TextStyle(
-                      fontFamily: 'OutfitBlack',
-                      fontSize: 24,
-                      color: AppColors.textPrimary,
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                          24, 24, 24, bottomPadding + 100),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Carteira',
+                            style: TextStyle(
+                              fontFamily: 'OutfitBlack',
+                              fontSize: 24,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          _BalanceCard(earnings: _earnings!),
+                          const SizedBox(height: 16),
+                          _TotalReceivedCard(earnings: _earnings!),
+                          const SizedBox(height: 16),
+                          EarningsChartCard(
+                            monthlyHistory: _earnings!.monthlyHistory,
+                            monthOverMonthDiff:
+                                _earnings!.currentMonthTotal -
+                                    _earnings!.previousMonthTotal,
+                          ),
+                          if (_profile != null) ...[
+                            const SizedBox(height: 16),
+                            _BankInfoCard(profile: _profile!),
+                          ],
+                          const SizedBox(height: 20),
+                          _StatementSection(
+                              entries: _earnings!.recentEntries),
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  _BalanceCard(earnings: earnings),
-                  const SizedBox(height: 16),
-                  _PeriodCard(
-                    selectedPeriod: _selectedPeriod,
-                    onPeriodChanged: (p) =>
-                        setState(() => _selectedPeriod = p),
-                    earning: period,
-                  ),
-                  const SizedBox(height: 16),
-                  EarningsChartCard(
-                    monthlyHistory: earnings.monthlyHistory
-                        .map((m) => MonthlyEarning(
-                              month: m.month,
-                              year: m.year,
-                              total: m.total,
-                              trips: m.trips,
-                            ))
-                        .toList(),
-                    monthOverMonthDiff: earnings.currentMonthTotal -
-                        earnings.previousMonthTotal,
-                  ),
-                  const SizedBox(height: 16),
-                  _BankInfoCard(provider: provider),
-                  const SizedBox(height: 20),
-                  _StatementSection(entries: earnings.recentEntries),
-                ],
-              ),
-            ),
           ),
           Positioned(
-            bottom: bottomPad + 12,
+            bottom: bottomPadding + 12,
             left: 24,
             right: 24,
             child: ServiceProviderBottomNav(
@@ -99,19 +111,12 @@ class _ProviderEarningsPageState extends State<ProviderEarningsPage> {
 }
 
 class _BalanceCard extends StatelessWidget {
-  final MockEarnings earnings;
+  final EarningsData earnings;
 
   const _BalanceCard({required this.earnings});
 
   @override
   Widget build(BuildContext context) {
-    final lastTx = earnings.lastTransaction;
-    final isPositive = lastTx.type != EarningType.withdrawal;
-    final txColor =
-        isPositive ? const Color(0xFF2ECC71) : Colors.red.shade300;
-    final txSign = isPositive ? '+' : '-';
-    final txAmount = lastTx.amount.abs();
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -134,61 +139,16 @@ class _BalanceCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Saldo disponível',
+            'Valor a receber',
             style: TextStyle(fontSize: 14, color: Colors.white70),
           ),
           const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                'R\$ ${earnings.availableBalance.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontFamily: 'OutfitBlack',
-                  fontSize: 32,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: txColor.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '$txSign R\$ ${txAmount.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontFamily: 'OutfitBlack',
-                      fontSize: 13,
-                      color: txColor,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {},
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: AppColors.secondary,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: const Text(
-                'Solicitar saque',
-                style:
-                    TextStyle(fontFamily: 'OutfitBlack', fontSize: 14),
-              ),
+          Text(
+            'R\$ ${earnings.availableBalance.toStringAsFixed(2)}',
+            style: const TextStyle(
+              fontFamily: 'OutfitBlack',
+              fontSize: 32,
+              color: Colors.white,
             ),
           ),
         ],
@@ -197,18 +157,10 @@ class _BalanceCard extends StatelessWidget {
   }
 }
 
-class _PeriodCard extends StatelessWidget {
-  final String selectedPeriod;
-  final ValueChanged<String> onPeriodChanged;
-  final MockPeriodEarning earning;
+class _TotalReceivedCard extends StatelessWidget {
+  final EarningsData earnings;
 
-  const _PeriodCard({
-    required this.selectedPeriod,
-    required this.onPeriodChanged,
-    required this.earning,
-  });
-
-  static const _periods = ['Diário', 'Semanal', 'Mensal', 'Anual'];
+  const _TotalReceivedCard({required this.earnings});
 
   @override
   Widget build(BuildContext context) {
@@ -222,43 +174,17 @@ class _PeriodCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: _periods.map((p) {
-              final isActive = p == selectedPeriod;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: GestureDetector(
-                  onTap: () => onPeriodChanged(p),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isActive
-                          ? AppColors.highlight
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(20),
-                      border: isActive
-                          ? null
-                          : Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: Text(
-                      p,
-                      style: TextStyle(
-                        fontFamily: 'QuasimodoSemiBold',
-                        fontSize: 12,
-                        color: isActive
-                            ? Colors.white
-                            : AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
+          const Text(
+            'Total recebido',
+            style: TextStyle(
+              fontFamily: 'OutfitBlack',
+              fontSize: 14,
+              color: AppColors.textSecondary,
+            ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 8),
           Text(
-            'R\$ ${earning.total.toStringAsFixed(2)}',
+            'R\$ ${earnings.totalReceived.toStringAsFixed(2)}',
             style: const TextStyle(
               fontFamily: 'OutfitBlack',
               fontSize: 28,
@@ -267,11 +193,9 @@ class _PeriodCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '${earning.trips} serviços',
+            '${earnings.totalTrips} serviços no total',
             style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-            ),
+                fontSize: 13, color: AppColors.textSecondary),
           ),
         ],
       ),
@@ -280,12 +204,17 @@ class _PeriodCard extends StatelessWidget {
 }
 
 class _BankInfoCard extends StatelessWidget {
-  final MockProvider provider;
+  final ProviderProfileData profile;
 
-  const _BankInfoCard({required this.provider});
+  const _BankInfoCard({required this.profile});
 
   @override
   Widget build(BuildContext context) {
+    final bank = profile.bankName ?? '-';
+    final agency = profile.bankAgency ?? '-';
+    final account = profile.bankAccount ?? '-';
+    final pix = profile.pixKey ?? '-';
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -313,27 +242,22 @@ class _BankInfoCard extends StatelessWidget {
                 onPressed: () {},
                 child: const Text(
                   'Editar',
-                  style: TextStyle(
-                      color: AppColors.secondary, fontSize: 13),
+                  style: TextStyle(color: AppColors.secondary, fontSize: 13),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            '${provider.bankName} · Ag ${provider.bankAgency} · Cc ${provider.bankAccount}',
+            '$bank · Ag $agency · Cc $account',
             style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-            ),
+                fontSize: 13, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 4),
           Text(
-            'PIX: ${provider.pixKey}',
+            'PIX: $pix',
             style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-            ),
+                fontSize: 13, color: AppColors.textSecondary),
           ),
         ],
       ),
@@ -342,7 +266,7 @@ class _BankInfoCard extends StatelessWidget {
 }
 
 class _StatementSection extends StatelessWidget {
-  final List<MockEarningEntry> entries;
+  final List<EarningEntry> entries;
 
   const _StatementSection({required this.entries});
 
@@ -360,14 +284,26 @@ class _StatementSection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        ...entries.map((e) => _EntryTile(entry: e)),
+        if (entries.isEmpty)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                'Nenhuma transação encontrada',
+                style: TextStyle(
+                    color: AppColors.textSecondary, fontSize: 14),
+              ),
+            ),
+          )
+        else
+          ...entries.map((e) => _EntryTile(entry: e)),
       ],
     );
   }
 }
 
 class _EntryTile extends StatelessWidget {
-  final MockEarningEntry entry;
+  final EarningEntry entry;
 
   const _EntryTile({required this.entry});
 
@@ -380,12 +316,15 @@ class _EntryTile extends StatelessWidget {
   Color get _color => switch (entry.type) {
         EarningType.trip => const Color(0xFF2ECC71),
         EarningType.bonus => AppColors.highlight,
-        EarningType.withdrawal => Colors.red.shade400,
+        EarningType.withdrawal => Colors.red,
       };
 
   @override
   Widget build(BuildContext context) {
-    final isNeg = entry.type == EarningType.withdrawal;
+    final isNegative = entry.type == EarningType.withdrawal;
+    final statusColor =
+        entry.isPaid ? const Color(0xFF2ECC71) : Colors.orange.shade600;
+    final statusLabel = entry.isPaid ? 'Pago' : 'Não pago';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -418,20 +357,40 @@ class _EntryTile extends StatelessWidget {
                     color: AppColors.textPrimary,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  '${entry.date.day.toString().padLeft(2, '0')}/'
-                  '${entry.date.month.toString().padLeft(2, '0')}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text(
+                      '${entry.date.day.toString().padLeft(2, '0')}/${entry.date.month.toString().padLeft(2, '0')}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: TextStyle(
+                          fontFamily: 'QuasimodoSemiBold',
+                          fontSize: 10,
+                          color: statusColor,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
           Text(
-            '${isNeg ? '-' : '+'}R\$ ${entry.amount.toStringAsFixed(2)}',
+            '${isNegative ? '-' : '+'}R\$ ${entry.amount.toStringAsFixed(2)}',
             style: TextStyle(
               fontFamily: 'OutfitBlack',
               fontSize: 15,

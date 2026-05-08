@@ -4,8 +4,12 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
+import 'package:kz_servicos_prestador/core/constants/category_colors.dart';
+import 'package:kz_servicos_prestador/core/models/provider_profile_data.dart';
+import 'package:kz_servicos_prestador/core/services/auth_state.dart';
+import 'package:kz_servicos_prestador/core/services/provider_service.dart';
 import 'package:kz_servicos_prestador/core/widgets/service_provider_bottom_nav.dart';
-import 'package:kz_servicos_prestador/features/profile/data/models/mock_provider.dart';
+import 'package:kz_servicos_prestador/routes/app_router.dart';
 
 class ProviderProfilePage extends StatefulWidget {
   final ValueChanged<int> onNavTap;
@@ -13,13 +17,30 @@ class ProviderProfilePage extends StatefulWidget {
   const ProviderProfilePage({super.key, required this.onNavTap});
 
   @override
-  State<ProviderProfilePage> createState() =>
-      _ProviderProfilePageState();
+  State<ProviderProfilePage> createState() => _ProviderProfilePageState();
 }
 
 class _ProviderProfilePageState extends State<ProviderProfilePage> {
-  final _provider = MockProvider.providerSample;
+  final _service = ProviderService();
+  ProviderProfileData? _profile;
+  bool _loading = true;
   String? _avatarPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final userId = AuthState.userId ?? '';
+    final profile = await _service.getProviderProfile(userId);
+    if (!mounted) return;
+    setState(() {
+      _profile = profile;
+      _loading = false;
+    });
+  }
 
   Future<void> _onEditPhoto() async {
     final source = await showModalBottomSheet<ImageSource>(
@@ -58,23 +79,29 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
       body: Stack(
         children: [
           SafeArea(
-            child: SingleChildScrollView(
-              padding:
-                  EdgeInsets.fromLTRB(24, 24, 24, bottomPad + 100),
-              child: Column(
-                children: [
-                  _buildHeader(),
-                  const SizedBox(height: 24),
-                  _buildOnlineStatus(),
-                  const SizedBox(height: 16),
-                  _buildStatsRow(),
-                  const SizedBox(height: 24),
-                  _buildCategoriesSection(),
-                  const SizedBox(height: 16),
-                  _buildMenuItems(),
-                ],
-              ),
-            ),
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                          24, 24, 24, bottomPad + 100),
+                      child: Column(
+                        children: [
+                          _buildHeader(),
+                          const SizedBox(height: 24),
+                          _buildOnlineStatus(),
+                          const SizedBox(height: 16),
+                          _buildStatsRow(),
+                          const SizedBox(height: 24),
+                          _buildCategoriesSection(),
+                          const SizedBox(height: 16),
+                          _buildMenuItems(),
+                        ],
+                      ),
+                    ),
+                  ),
           ),
           Positioned(
             bottom: bottomPad + 12,
@@ -91,6 +118,10 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
   }
 
   Widget _buildHeader() {
+    final name = _profile?.name ?? AuthState.userName ?? '';
+    final email = _profile?.email ?? AuthState.userEmail ?? '';
+    final initial = name.isNotEmpty ? name[0] : '?';
+
     return Column(
       children: [
         Stack(
@@ -104,7 +135,7 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
                   : null,
               child: _avatarPath == null
                   ? Text(
-                      _provider.name[0],
+                      initial,
                       style: const TextStyle(
                         fontFamily: 'OutfitBlack',
                         fontSize: 36,
@@ -138,7 +169,7 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
         ),
         const SizedBox(height: 12),
         Text(
-          _provider.name,
+          name,
           style: const TextStyle(
             fontFamily: 'OutfitBlack',
             fontSize: 22,
@@ -147,7 +178,7 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
         ),
         const SizedBox(height: 4),
         Text(
-          _provider.email,
+          email,
           style: const TextStyle(
             fontSize: 14,
             color: AppColors.textSecondary,
@@ -162,9 +193,7 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
       padding:
           const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(
-        color: _provider.isOnline
-            ? const Color(0xFF2ECC71).withValues(alpha: 0.1)
-            : Colors.red.shade50,
+        color: const Color(0xFF2ECC71).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -173,22 +202,18 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
           Container(
             width: 10,
             height: 10,
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               shape: BoxShape.circle,
-              color: _provider.isOnline
-                  ? const Color(0xFF2ECC71)
-                  : Colors.red.shade400,
+              color: Color(0xFF2ECC71),
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            _provider.isOnline ? 'Online' : 'Offline',
+          const Text(
+            'Online',
             style: TextStyle(
               fontFamily: 'OutfitBlack',
               fontSize: 14,
-              color: _provider.isOnline
-                  ? const Color(0xFF2ECC71)
-                  : Colors.red.shade400,
+              color: Color(0xFF2ECC71),
             ),
           ),
         ],
@@ -197,25 +222,29 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
   }
 
   Widget _buildStatsRow() {
+    final rating = _profile?.averageRating ?? 0;
+    final totalRatings = _profile?.totalRatings ?? 0;
+    final memberSince = _profile?.memberSince ?? '-';
+
     return Row(
       children: [
         _StatCard(
           icon: Icons.star,
-          value: _provider.rating.toStringAsFixed(1),
+          value: rating.toStringAsFixed(1),
           label: 'Avaliação',
           color: AppColors.highlight,
         ),
         const SizedBox(width: 12),
         _StatCard(
           icon: Icons.handyman_rounded,
-          value: '${_provider.completedTrips}',
+          value: '$totalRatings',
           label: 'Serviços',
           color: AppColors.secondary,
         ),
         const SizedBox(width: 12),
         _StatCard(
           icon: Icons.calendar_today,
-          value: 'Desde ${_provider.memberSince}',
+          value: 'Desde $memberSince',
           label: 'Membro',
           color: const Color(0xFF2ECC71),
         ),
@@ -223,24 +252,9 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
     );
   }
 
-  static const _categoryColors = <String, Color>{
-    'Eletricista': Color(0xFFE67E22),
-    'Encanador': Color(0xFF3498DB),
-    'Pintor': Color(0xFF9B59B6),
-    'Faxineira': Color(0xFF1ABC9C),
-    'Montador de Móveis': Color(0xFF8D6E63),
-    'Técnico de Informática': Color(0xFF607D8B),
-    'Jardineiro': Color(0xFF2ECC71),
-    'Pedreiro': Color(0xFF795548),
-    'Chaveiro': Color(0xFFF39C12),
-    'Ar-condicionado': Color(0xFF00BCD4),
-    'Marceneiro': Color(0xFFA1887F),
-    'Vidraceiro': Color(0xFF42A5F5),
-    'Serralheiro': Color(0xFF78909C),
-    'Dedetizador': Color(0xFFEF5350),
-  };
-
   Widget _buildCategoriesSection() {
+    final categories = _profile?.serviceCategories ?? const <String>[];
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -260,31 +274,36 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
             ),
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children:
-                _provider.serviceCategories.map((cat) {
-              final color =
-                  _categoryColors[cat] ?? AppColors.secondary;
-              return Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  cat,
-                  style: TextStyle(
-                    fontFamily: 'QuasimodoSemiBold',
-                    fontSize: 13,
-                    color: color,
+          if (categories.isEmpty)
+            const Text(
+              'Nenhuma categoria cadastrada',
+              style: TextStyle(
+                  fontSize: 13, color: AppColors.textSecondary),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: categories.map((cat) {
+                final color = categoryColorFor(cat);
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                ),
-              );
-            }).toList(),
-          ),
+                  child: Text(
+                    cat,
+                    style: TextStyle(
+                      fontFamily: 'QuasimodoSemiBold',
+                      fontSize: 13,
+                      color: color,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
         ],
       ),
     );
@@ -348,6 +367,44 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
     );
   }
 
+  void _showLogoutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Sair da conta',
+          style: TextStyle(fontFamily: 'OutfitBlack', fontSize: 18),
+        ),
+        content: const Text(
+          'Tem certeza que deseja sair da sua conta?',
+          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              AppRouter.logout(context);
+            },
+            child: Text(
+              'Sair',
+              style: TextStyle(
+                color: Colors.red.shade400,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMenuItems() {
     return Container(
       decoration: BoxDecoration(
@@ -380,7 +437,7 @@ class _ProviderProfilePageState extends State<ProviderProfilePage> {
             icon: Icons.logout,
             label: 'Sair',
             color: Colors.red.shade400,
-            onTap: () => context.go('/login'),
+            onTap: () => _showLogoutDialog(context),
             showDivider: false,
           ),
         ],

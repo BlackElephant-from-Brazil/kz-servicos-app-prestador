@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:kz_servicos_prestador/core/constants/app_colors.dart';
+import 'package:kz_servicos_prestador/core/constants/category_colors.dart';
+import 'package:kz_servicos_prestador/core/models/service_request_data.dart';
+import 'package:kz_servicos_prestador/core/services/auth_state.dart';
+import 'package:kz_servicos_prestador/core/services/service_request_service.dart';
 import 'package:kz_servicos_prestador/core/widgets/service_provider_bottom_nav.dart';
-import 'package:kz_servicos_prestador/features/other_services/data/models/mock_service_request.dart';
 
 class ServiceRequestsPage extends StatefulWidget {
   final ValueChanged<int> onNavTap;
@@ -9,34 +12,72 @@ class ServiceRequestsPage extends StatefulWidget {
   const ServiceRequestsPage({super.key, required this.onNavTap});
 
   @override
-  State<ServiceRequestsPage> createState() =>
-      _ServiceRequestsPageState();
+  State<ServiceRequestsPage> createState() => _ServiceRequestsPageState();
 }
 
 class _ServiceRequestsPageState extends State<ServiceRequestsPage> {
+  final _service = ServiceRequestService();
   String _filter = 'Todos';
-  final _requests = List<MockServiceRequest>.from(
-    MockServiceRequest.samples,
-  );
+  bool _loading = true;
+  List<ServiceRequestData> _requests = [];
+  final Set<String> _hiddenIds = {};
 
-  List<MockServiceRequest> get _filteredRequests {
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final providerId = AuthState.providerProfileId ?? '';
+    final result = await _service.getProviderRequests(providerId);
+    if (!mounted) return;
+    setState(() {
+      _requests = result;
+      _loading = false;
+    });
+  }
+
+  List<ServiceRequestData> get _filteredRequests {
+    final providerId = AuthState.providerProfileId;
+    final visible =
+        _requests.where((r) => !_hiddenIds.contains(r.id)).toList();
     if (_filter == 'Pendentes') {
-      return _requests
-          .where((r) => r.status == ServiceRequestStatus.pending)
-          .toList();
+      return visible.where((r) => r.providerProfileId == null).toList();
     }
     if (_filter == 'Aceitos') {
-      return _requests
-          .where((r) => r.status == ServiceRequestStatus.accepted)
+      return visible
+          .where((r) => r.providerProfileId == providerId)
           .toList();
     }
-    return _requests;
+    return visible;
+  }
+
+  Future<void> _onAccept(ServiceRequestData request) async {
+    final providerId = AuthState.providerProfileId ?? '';
+    final ok = await _service.acceptRequest(request.id, providerId);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok ? 'Solicitação aceita' : 'Não foi possível aceitar',
+        ),
+      ),
+    );
+    if (ok) await _load();
+  }
+
+  void _onReject(ServiceRequestData request) {
+    setState(() => _hiddenIds.add(request.id));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Solicitação recusada')),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final bottomPad = MediaQuery.of(context).padding.bottom;
-    final filtered = _filteredRequests;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -66,14 +107,37 @@ class _ServiceRequestsPageState extends State<ServiceRequestsPage> {
                 ),
                 const SizedBox(height: 12),
                 Expanded(
-                  child: filtered.isEmpty
-                      ? _buildEmptyState()
-                      : ListView.builder(
-                          padding: EdgeInsets.fromLTRB(
-                              24, 0, 24, bottomPad + 100),
-                          itemCount: filtered.length,
-                          itemBuilder: (_, i) =>
-                              _RequestCard(request: filtered[i]),
+                  child: _loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : RefreshIndicator(
+                          onRefresh: _load,
+                          child: _filteredRequests.isEmpty
+                              ? ListView(
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  children: [
+                                    SizedBox(
+                                      height:
+                                          MediaQuery.of(context).size.height *
+                                              0.5,
+                                      child: _buildEmptyState(),
+                                    ),
+                                  ],
+                                )
+                              : ListView.builder(
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  padding: EdgeInsets.fromLTRB(
+                                      24, 0, 24, bottomPad + 100),
+                                  itemCount: _filteredRequests.length,
+                                  itemBuilder: (_, i) => _RequestCard(
+                                    request: _filteredRequests[i],
+                                    onAccept: () =>
+                                        _onAccept(_filteredRequests[i]),
+                                    onReject: () =>
+                                        _onReject(_filteredRequests[i]),
+                                  ),
+                                ),
                         ),
                 ),
               ],
@@ -106,9 +170,7 @@ class _ServiceRequestsPageState extends State<ServiceRequestsPage> {
               padding: const EdgeInsets.symmetric(
                   horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: isActive
-                    ? AppColors.highlight
-                    : Colors.white,
+                color: isActive ? AppColors.highlight : Colors.white,
                 borderRadius: BorderRadius.circular(20),
                 border: isActive
                     ? null
@@ -119,9 +181,7 @@ class _ServiceRequestsPageState extends State<ServiceRequestsPage> {
                 style: TextStyle(
                   fontFamily: 'QuasimodoSemiBold',
                   fontSize: 13,
-                  color: isActive
-                      ? Colors.white
-                      : AppColors.textSecondary,
+                  color: isActive ? Colors.white : AppColors.textSecondary,
                 ),
               ),
             ),
@@ -153,12 +213,18 @@ class _ServiceRequestsPageState extends State<ServiceRequestsPage> {
 }
 
 class _RequestCard extends StatelessWidget {
-  final MockServiceRequest request;
+  final ServiceRequestData request;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
 
-  const _RequestCard({required this.request});
+  const _RequestCard({
+    required this.request,
+    required this.onAccept,
+    required this.onReject,
+  });
 
   String get _formattedDate {
-    final d = request.scheduledDate;
+    final d = request.serviceDate;
     return '${d.day.toString().padLeft(2, '0')}/'
         '${d.month.toString().padLeft(2, '0')} às '
         '${d.hour.toString().padLeft(2, '0')}:'
@@ -167,6 +233,8 @@ class _RequestCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final categoryColor = categoryColorFor(request.categoryName);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -193,15 +261,15 @@ class _RequestCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: request.categoryColor.withValues(alpha: 0.15),
+                  color: categoryColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  request.category,
+                  request.categoryName,
                   style: TextStyle(
                     fontFamily: 'QuasimodoSemiBold',
                     fontSize: 12,
-                    color: request.categoryColor,
+                    color: categoryColor,
                   ),
                 ),
               ),
@@ -209,7 +277,7 @@ class _RequestCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            request.problemDescription,
+            request.description,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
@@ -252,7 +320,7 @@ class _RequestCard extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                'R\$ ${request.estimatedValue.toStringAsFixed(2)}',
+                'R\$ ${request.displayPrice.toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontFamily: 'OutfitBlack',
                   fontSize: 15,
@@ -261,21 +329,20 @@ class _RequestCard extends StatelessWidget {
               ),
             ],
           ),
-          if (request.status == ServiceRequestStatus.pending) ...[
+          if (request.isOpen) ...[
             const SizedBox(height: 14),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () {},
+                    onPressed: onReject,
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red.shade400,
                       side: BorderSide(color: Colors.red.shade300),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 10),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                     ),
                     child: const Text(
                       'Recusar',
@@ -289,15 +356,14 @@ class _RequestCard extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: () {},
+                    onPressed: onAccept,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.highlight,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 10),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                     ),
                     child: const Text(
                       'Aceitar',
@@ -310,8 +376,7 @@ class _RequestCard extends StatelessWidget {
                 ),
               ],
             ),
-          ],
-          if (request.status == ServiceRequestStatus.accepted) ...[
+          ] else ...[
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.symmetric(

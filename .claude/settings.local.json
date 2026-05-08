@@ -14,7 +14,9 @@
       "Bash(cp 'C:/Users/guilh/OneDrive/Documents/BlackElephant/Clientes/KZ/kz-servicos-app-prestador/.github/skills/kz-database/references/*' C:/Users/guilh/OneDrive/Documents/BlackElephant/Clientes/KZ/kz-servicos-app-prestador/.claude/kz-database/references/)",
       "Bash(git push *)",
       "Bash(git fetch *)",
-      "Bash(git status *)"
+      "Bash(git status *)",
+      "Bash(git -C \"C:/Users/guilh/OneDrive/Documents/BlackElephant/Clientes/KZ/kz-servicos-app-prestador\" add docs/superpowers/specs/2026-04-29-prestador-implementation-design.md)",
+      "Bash(git -C \"C:/Users/guilh/OneDrive/Documents/BlackElephant/Clientes/KZ/kz-servicos-app-prestador\" commit -m \"docs: spec de implementação do fluxo do prestador de serviços\")"
     ]
   }
 }

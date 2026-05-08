@@ -427,4 +427,104 @@ class EarningsData {
       totalTrips: trips.length,
     );
   }
+
+  /// Agrega ganhos a partir de service_requests do prestador.
+  /// Usa is_paid (em vez de is_driver_paied) e service_date como data de referência.
+  factory EarningsData.fromServiceRequests(
+    List<Map<String, dynamic>> requests,
+  ) {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final weekStart = todayStart.subtract(Duration(days: now.weekday - 1));
+    final monthStart = DateTime(now.year, now.month, 1);
+    final prevMonthStart = DateTime(now.year, now.month - 1, 1);
+    final yearStart = DateTime(now.year, 1, 1);
+
+    final paid = requests.where((r) => r['is_paid'] == true).toList();
+    final unpaid = requests.where((r) => r['is_paid'] != true).toList();
+
+    double availableBalance = 0;
+    for (final r in unpaid) {
+      availableBalance +=
+          ((r['final_price'] ?? r['estimated_price']) as num?)?.toDouble() ?? 0;
+    }
+
+    double totalReceived = 0;
+    for (final r in paid) {
+      totalReceived +=
+          ((r['final_price'] ?? r['estimated_price']) as num?)?.toDouble() ?? 0;
+    }
+
+    double daily = 0, weekly = 0, monthly = 0, yearly = 0;
+    int dailyCount = 0, weeklyCount = 0, monthlyCount = 0, yearlyCount = 0;
+    for (final r in paid) {
+      final price =
+          ((r['final_price'] ?? r['estimated_price']) as num?)?.toDouble() ?? 0;
+      final dateStr = r['service_date'] as String?;
+      if (dateStr == null) continue;
+      final date = DateTime.parse(dateStr);
+      if (!date.isBefore(yearStart)) { yearly += price; yearlyCount++; }
+      if (!date.isBefore(monthStart)) { monthly += price; monthlyCount++; }
+      if (!date.isBefore(weekStart)) { weekly += price; weeklyCount++; }
+      if (!date.isBefore(todayStart)) { daily += price; dailyCount++; }
+    }
+
+    double currentMonthAll = 0, prevMonthAll = 0;
+    final monthMap = <String, MonthlyEarning>{};
+    for (final r in requests) {
+      final price =
+          ((r['final_price'] ?? r['estimated_price']) as num?)?.toDouble() ?? 0;
+      final dateStr = r['service_date'] as String?;
+      if (dateStr == null) continue;
+      final date = DateTime.parse(dateStr);
+
+      if (!date.isBefore(monthStart)) currentMonthAll += price;
+      if (!date.isBefore(prevMonthStart) && date.isBefore(monthStart)) {
+        prevMonthAll += price;
+      }
+
+      final key = '${date.year}-${date.month.toString().padLeft(2, '0')}';
+      final existing = monthMap[key];
+      monthMap[key] = MonthlyEarning(
+        month: date.month,
+        year: date.year,
+        total: (existing?.total ?? 0) + price,
+        trips: (existing?.trips ?? 0) + 1,
+      );
+    }
+
+    final history = monthMap.values.toList()
+      ..sort((a, b) =>
+          DateTime(a.year, a.month).compareTo(DateTime(b.year, b.month)));
+
+    final entries = requests.take(10).map((r) {
+      final price =
+          ((r['final_price'] ?? r['estimated_price']) as num?)?.toDouble() ?? 0;
+      final dateStr = (r['service_date'] ?? '') as String;
+      final date =
+          dateStr.isNotEmpty ? DateTime.parse(dateStr) : DateTime.now();
+      return EarningEntry(
+        id: r['id'] as String? ?? '',
+        description: 'Serviço',
+        amount: price,
+        date: date,
+        type: EarningType.trip,
+        isPaid: r['is_paid'] == true,
+      );
+    }).toList();
+
+    return EarningsData(
+      availableBalance: availableBalance,
+      totalReceived: totalReceived,
+      currentMonthTotal: currentMonthAll,
+      previousMonthTotal: prevMonthAll,
+      dailyEarning: PeriodEarning(total: daily, trips: dailyCount),
+      weeklyEarning: PeriodEarning(total: weekly, trips: weeklyCount),
+      monthlyEarning: PeriodEarning(total: monthly, trips: monthlyCount),
+      yearlyEarning: PeriodEarning(total: yearly, trips: yearlyCount),
+      monthlyHistory: history,
+      recentEntries: entries,
+      totalTrips: requests.length,
+    );
+  }
 }
